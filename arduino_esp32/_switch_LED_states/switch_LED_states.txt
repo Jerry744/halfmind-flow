@@ -1,0 +1,180 @@
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <Adafruit_NeoPixel.h>
+#include <OSCMessage.h>
+
+#define LED_PIN     5
+#define NUM_LEDS    7
+#define TOUCH_PIN_1 T0  // GPIO4
+#define TOUCH_PIN_2 T3  // GPIO15
+
+Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
+
+// WiFi & OSC
+const char* ssid = "YOUR_SSID";
+const char* password = "YOUR_PASSWORD";
+WiFiUDP Udp;
+const int localPort = 8000;
+
+// 状态控制
+int state = 0;
+unsigned long stateStartTime = 0;
+bool waitingForTimeout = false;
+unsigned long lastTouchTrigger = 0;
+
+void setup() {
+  Serial.begin(115200);
+  strip.begin();
+  strip.show();
+  strip.setPixelColor(0, strip.Color(0, 255, 0)); // 点亮第一个灯为绿色
+  strip.show();
+  delay(2000);
+  touchAttachInterrupt(TOUCH_PIN_1, onTouch1, 40);
+  touchAttachInterrupt(TOUCH_PIN_2, onTouch2, 40);
+
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi connected");
+  Udp.begin(localPort);
+}
+
+void loop() {
+  checkOSC();
+
+  unsigned long now = millis();
+  switch (state) {
+    case 0:
+      orangeBreath();
+      break;
+    case 1:
+      redSolid();
+      if (!waitingForTimeout) {
+        stateStartTime = now;
+        waitingForTimeout = true;
+      } else if (now - stateStartTime >= 5000) {
+        state = 0;
+        waitingForTimeout = false;
+      }
+      break;
+    case 2:
+      rainbowCycle(5);
+      state = 0;
+      break;
+    case 3:
+      redBlink();
+      if (!waitingForTimeout) {
+        stateStartTime = now;
+        waitingForTimeout = true;
+      } else if (now - stateStartTime >= 5000) {
+        state = 0;
+        waitingForTimeout = false;
+      }
+      break;
+  }
+}
+
+// OSC 接收处理
+void checkOSC() {
+  int size = Udp.parsePacket();
+  if (size > 0) {
+    OSCMessage msg;
+    while (size--) {
+      msg.fill(Udp.read());
+    }
+    if (!msg.hasError()) {
+      msg.route("/state", handleState);
+    }
+  }
+}
+
+void handleState(OSCMessage &msg, int addrOffset) {
+  if (msg.isInt(0)) {
+    int newState = msg.getInt(0);
+    if (newState >= 0 && newState <= 3) {
+      state = newState;
+      waitingForTimeout = false;
+      Serial.print("OSC State changed to ");
+      Serial.println(state);
+    }
+  }
+}
+
+// 灯光函数
+void orangeBreath() {
+  static int brightness = 0;
+  static int fadeAmount = 5;
+  for (int i = 0; i < NUM_LEDS; i++) {
+    strip.setPixelColor(i, strip.Color(255 * brightness / 255, 80 * brightness / 255, 0));
+  }
+  strip.show();
+  brightness += fadeAmount;
+  if (brightness <= 0 || brightness >= 255) fadeAmount = -fadeAmount;
+  delay(20);
+}
+
+void redSolid() {
+  for (int i = 0; i < NUM_LEDS; i++) {
+    strip.setPixelColor(i, strip.Color(255, 0, 0));
+  }
+  strip.show();
+}
+
+void rainbowCycle(uint8_t seconds) {
+  uint32_t start = millis();
+  while (millis() - start < seconds * 1000) {
+    for (int j = 0; j < 256; j++) {
+      for (int i = 0; i < NUM_LEDS; i++) {
+        strip.setPixelColor(i, Wheel((i * 256 / NUM_LEDS + j) & 255));
+      }
+      strip.show();
+      delay(20);
+    }
+  }
+}
+
+void redBlink() {
+  static bool on = false;
+  static unsigned long lastBlink = 0;
+  if (millis() - lastBlink > 300) {
+    on = !on;
+    for (int i = 0; i < NUM_LEDS; i++) {
+      strip.setPixelColor(i, on ? strip.Color(255, 0, 0) : 0);
+    }
+    strip.show();
+    lastBlink = millis();
+  }
+}
+
+uint32_t Wheel(byte pos) {
+  pos = 255 - pos;
+  if (pos < 85) return strip.Color(255 - pos * 3, 0, pos * 3);
+  else if (pos < 170) {
+    pos -= 85;
+    return strip.Color(0, pos * 3, 255 - pos * 3);
+  } else {
+    pos -= 170;
+    return strip.Color(pos * 3, 255 - pos * 3, 0);
+  }
+}
+
+// 触摸切换状态
+void onTouch1() {
+  if (millis() - lastTouchTrigger > 300) {
+    state = (state + 1) % 4;
+    waitingForTimeout = false;
+    Serial.println("Touch1 -> State: " + String(state));
+    lastTouchTrigger = millis();
+  }
+}
+
+void onTouch2() {
+  if (millis() - lastTouchTrigger > 300) {
+    state = 2; // 强制进入彩虹状态
+    waitingForTimeout = false;
+    Serial.println("Touch2 -> State: 2 (Rainbow)");
+    lastTouchTrigger = millis();
+  }
+}

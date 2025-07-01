@@ -1,0 +1,322 @@
+#include <Adafruit_NeoPixel.h>
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <OSCMessage.h>
+
+#define LED_PIN     5      // D5
+#define NUM_LEDS    7
+#define TOUCH_PIN   T0     // D4 (GPIO4, touch-capable)
+#define BREATH_CYCLE_LENGTH 4.0  // Half breathing cycle in seconds
+
+// WiFi settings
+const char* ssid = "TP_Link-CF74";
+const char* password = "81541027";
+
+// OSC settings
+WiFiUDP Udp;
+const unsigned int localPort = 8888;  // Local port to listen on
+const char* oscStatusAddress = "/status";        // OSC address for state control
+const char* oscBreathingAddress = "/breathingrate"; // OSC address for breathing rate
+
+// Dynamic breathing rate control
+float currentBreathingRate = BREATH_CYCLE_LENGTH;  // Current breathing rate in seconds
+
+Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
+
+// 状态定义
+enum {
+  SETUP_TEST = 0,
+  STATUS_0,   // nobody
+  STATUS_1,   // user appear
+  STATUS_2,   // user working
+  STATUS_3,   // out of focus
+  STATUS_4,   // time up
+  STATUS_5    // user leave
+};
+int state = SETUP_TEST;
+unsigned long stateStartTime = 0;
+bool waitingForTimeout = false;
+unsigned long lastTouchTime = 0;
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("Starting LED State Controller with OSC...");
+  
+  // Connect to WiFi
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+  Serial.print("Connected! IP address: ");
+  Serial.println(WiFi.localIP());
+  
+  // Start UDP
+  Udp.begin(localPort);
+  Serial.print("OSC listening on port: ");
+  Serial.println(localPort);
+  Serial.println("OSC addresses: /status, /breathingrate");
+  
+  strip.begin();
+  strip.show();
+  
+  Serial.println("Setup test: Green LEDs for 2 seconds");
+  // Setup test: turn on green for 2 seconds
+  for (int i = 0; i < NUM_LEDS; i++) {
+    strip.setPixelColor(i, strip.Color(0, 255, 0));
+  }
+  strip.show();
+  delay(2000);
+  strip.clear();
+  strip.show();
+  
+  state = STATUS_0;
+  Serial.println("Setup complete. Entering STATUS_0 (nobody)");
+}
+
+void loop() {
+  handleTouch();
+  handleOSC();  // Handle incoming OSC messages
+
+  unsigned long now = millis();
+  switch (state) {
+    case STATUS_0: // nobody, breathing orange
+      orangeBreath();
+      break;
+    case STATUS_1: // user appear, red for 5s, then STATUS_2
+      redSolid();
+      delay(5000);
+      // if (!waitingForTimeout) {
+      //   stateStartTime = now;
+      //   waitingForTimeout = true;
+      // } else if (now - stateStartTime >= 5000) {
+      //   state = STATUS_2;
+      //   waitingForTimeout = false;
+      // }
+      break;
+    case STATUS_2: // user working, orange 20%
+      orangeLow();
+      break;
+    case STATUS_3: // out of focus, blink once, then STATUS_2
+      blinkOnce();
+      break;
+    case STATUS_4: // time up, rainbow, then STATUS_5
+      rainbowCycle(5);
+      state = STATUS_5;
+      break;
+    case STATUS_5: // user leave, blink red 5s, then STATUS_0
+      redBlink5s();
+      break;
+  }
+}
+
+// Handle incoming OSC messages
+void handleOSC() {
+  OSCMessage msg;
+  int size = Udp.parsePacket();
+  
+  if (size > 0) {
+    while (size--) {
+      msg.fill(Udp.read());
+    }
+    
+    if (!msg.hasError()) {
+      msg.route(oscStatusAddress, routeStatus);
+      msg.route(oscBreathingAddress, routeBreathingRate);
+    }
+  }
+}
+
+// Route function for status OSC messages
+void routeStatus(OSCMessage &msg, int addrOffset) {
+  if (msg.isInt(0)) {
+    int newState = msg.getInt(0);
+    
+    // Validate state range
+    if (newState >= 0 && newState <= 5) {
+      int oldState = state;
+      state = newState;
+      waitingForTimeout = false;
+      
+      Serial.print("OSC /status received! State changed from "); 8888
+      Serial.print(getStateName(oldState));
+      Serial.print(" to ");
+      Serial.println(getStateName(state));
+    } else {
+      Serial.print("Invalid state received via OSC /status: ");
+      Serial.println(newState);
+    }
+  } else {
+    Serial.println("OSC /status message received but not an integer");
+  }
+}
+
+// Route function for breathing rate OSC messages
+void routeBreathingRate(OSCMessage &msg, int addrOffset) {
+  if (msg.isFloat(0)) {
+    float newRate = msg.getFloat(0);
+    
+    // Validate breathing rate (0.1 to 20 seconds)
+    if (newRate >= 0.1 && newRate <= 20.0) {
+      float oldRate = currentBreathingRate;
+      currentBreathingRate = newRate;
+      
+      Serial.print("OSC /breathingrate received! Breathing rate changed from ");
+      Serial.print(oldRate);
+      Serial.print("s to ");
+      Serial.print(currentBreathingRate);
+      Serial.println("s");
+    } else {
+      Serial.print("Invalid breathing rate received via OSC /breathingrate: ");
+      Serial.println(newRate);
+      Serial.println("Valid range: 0.1 to 20.0 seconds");
+    }
+  } else if (msg.isInt(0)) {
+    // Also accept integer values
+    int newRate = msg.getInt(0);
+    
+    if (newRate >= 1 && newRate <= 20) {
+      float oldRate = currentBreathingRate;
+      currentBreathingRate = (float)newRate;
+      
+      Serial.print("OSC /breathingrate received! Breathing rate changed from ");
+      Serial.print(oldRate);
+      Serial.print("s to ");
+      Serial.print(currentBreathingRate);
+      Serial.println("s");
+    } else {
+      Serial.print("Invalid breathing rate received via OSC /breathingrate: ");
+      Serial.println(newRate);
+      Serial.println("Valid range: 1 to 20 seconds");
+    }
+  } else {
+    Serial.println("OSC /breathingrate message received but not a number");
+  }
+}
+
+// Helper function to get state name for debugging
+String getStateName(int stateNum) {
+  switch (stateNum) {
+    case SETUP_TEST: return "SETUP_TEST";
+    case STATUS_0: return "STATUS_0 (nobody)";
+    case STATUS_1: return "STATUS_1 (user appear)";
+    case STATUS_2: return "STATUS_2 (user working)";
+    case STATUS_3: return "STATUS_3 (out of focus)";
+    case STATUS_4: return "STATUS_4 (time up)";
+    case STATUS_5: return "STATUS_5 (user leave)";
+    default: return "UNKNOWN";
+  }
+}
+
+// Touch: only one change per touch, regardless of touch time
+void handleTouch() {
+  static bool lastTouch = false;
+  bool touch = touchRead(TOUCH_PIN) < 40; // Adjust threshold as needed
+  unsigned long now = millis();
+  if (touch && !lastTouch && now - lastTouchTime > 300) { // Debounce
+    state = (state + 1) % 6 + 1; // Cycle STATUS_0~STATUS_5
+    if (state > STATUS_5) state = STATUS_0;
+    waitingForTimeout = false;
+    lastTouchTime = now;
+  }
+  lastTouch = touch;
+}
+
+// Lighting functions
+
+void orangeBreath() {
+  static float brightness = 0;
+  static float fadeAmount = 255 / (currentBreathingRate * 50);  // Use dynamic breathing rate
+  for (int i = 0; i < NUM_LEDS; i++) {
+    strip.setPixelColor(i, strip.Color((int)(255 * brightness / 255.0), (int)(80 * brightness / 255.0), 0));
+  }
+  strip.show();
+  brightness += fadeAmount;
+  if (brightness <= 0 || brightness >= 255) fadeAmount = - fadeAmount;
+  Serial.println(brightness);
+  delay(20);
+}
+
+void redSolid() {
+  for (int i = 0; i < NUM_LEDS; i++) {
+    strip.setPixelColor(i, strip.Color(255, 0, 0));
+  }
+  strip.show();
+}
+
+void orangeLow() {
+  for (int i = 0; i < NUM_LEDS; i++) {
+    strip.setPixelColor(i, strip.Color(51, 16, 0)); // 20% of 255, 80
+    strip.setBrightness(51);
+  }
+  strip.show();
+}
+
+void blinkOnce() {
+  static bool hasBlinked = false;
+  static unsigned long blinkStart = 0;
+  if (!hasBlinked) {
+    for (int i = 0; i < NUM_LEDS; i++) {
+      strip.setPixelColor(i, strip.Color(255, 255, 255));
+    }
+    strip.show();
+    blinkStart = millis();
+    hasBlinked = true;
+  } else if (millis() - blinkStart >= 500) {
+    strip.clear();
+    strip.show();
+    state = STATUS_2;
+    hasBlinked = false;
+  }
+}
+
+void rainbowCycle(uint8_t seconds) {
+  uint32_t start = millis();
+  while (millis() - start < seconds * 1000) {
+    for (int j = 0; j < 256; j++) {
+      for (int i = 0; i < NUM_LEDS; i++) {
+        strip.setPixelColor(i, Wheel((i * 256 / NUM_LEDS + j) & 255));
+      }
+      strip.show();
+      delay(20);
+    }
+  }
+}
+
+void redBlink5s() {
+  static bool on = false;
+  static unsigned long lastBlink = 0;
+  static unsigned long startBlink = 0;
+  if (!waitingForTimeout) {
+    startBlink = millis();
+    waitingForTimeout = true;
+    on = false;
+    lastBlink = 0;
+  }
+  if (millis() - lastBlink > 1000) {
+    on = !on;
+    for (int i = 0; i < NUM_LEDS; i++) {
+      strip.setPixelColor(i, on ? strip.Color(255, 0, 0) : 0);
+    }
+    strip.show();
+    lastBlink = millis();
+  }
+  if (millis() - startBlink >= 5000) {
+    state = STATUS_0;
+    waitingForTimeout = false;
+  }
+}
+
+uint32_t Wheel(byte pos) {
+  pos = 255 - pos;
+  if (pos < 85) return strip.Color(255 - pos * 3, 0, pos * 3);
+  else if (pos < 170) {
+    pos -= 85;
+    return strip.Color(0, pos * 3, 255 - pos * 3);
+  } else {
+    pos -= 170;
+    return strip.Color(pos * 3, 255 - pos * 3, 0);
+  }
+}

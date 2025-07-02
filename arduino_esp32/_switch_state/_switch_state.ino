@@ -9,7 +9,7 @@
 #define BREATH_CYCLE_LENGTH 4.0  // Half breathing cycle in seconds
 
 // WiFi settings
-const char* ssid = "TP_Link-CF74";
+const char* ssid = "TP-Link_CF74";
 const char* password = "81541027";
 
 // OSC settings
@@ -25,6 +25,11 @@ bool enableIPFiltering = false;  // Set to false to accept from any IP
 
 // Dynamic breathing rate control
 float currentBreathingRate = BREATH_CYCLE_LENGTH;  // Current breathing rate in seconds
+
+// Global variables for breathing effect
+float breathingBrightness = 0;
+bool breathingIncreasing = true; // true = brightening, false = dimming
+uint32_t breathingColor = 0;     // Set this to strip.Color(r, g, b) before use
 
 Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
@@ -43,37 +48,47 @@ unsigned long stateStartTime = 0;
 bool waitingForTimeout = false;
 unsigned long lastTouchTime = 0;
 
-void setup() {
-  Serial.begin(115200);
-  Serial.println("Starting LED State Controller with OSC...");
-  
-  // Connect to WiFi
+// Helper function to connect to WiFi with timeout (returns true if connected, false if timeout)
+bool connectToWiFiWithTimeout(const char* ssid, const char* password, unsigned long timeoutMs) {
   WiFi.begin(ssid, password);
   Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
+  unsigned long startAttemptTime = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < timeoutMs) {
     delay(500);
     Serial.print(".");
   }
   Serial.println();
-  Serial.print("Connected! IP address: ");
-  Serial.println(WiFi.localIP());
+  return WiFi.status() == WL_CONNECTED;
+}
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("Starting LED State Controller with OSC...");
   
-  // Start UDP
-  Udp.begin(localPort);
-  Serial.print("OSC listening on port: ");
-  Serial.println(localPort);
-  Serial.println("OSC addresses: /status, /breathingrate, /config");
-  
-  // Display OSC security settings
-  if (enableIPFiltering) {
-    Serial.print("OSC IP filtering ENABLED - Only accepting messages from: ");
-    Serial.println(designatedIP);
+  // Connect to WiFi with 30s timeout
+  bool wifiConnected = connectToWiFiWithTimeout(ssid, password, 30000);
+  if (wifiConnected) {
+    Serial.print("Connected! IP address: ");
+    Serial.println(WiFi.localIP());
+    // Start UDP
+    Udp.begin(localPort);
+    Serial.print("OSC listening on port: ");
+    Serial.println(localPort);
+    Serial.println("OSC addresses: /status, /breathingrate, /config");
+    // Display OSC security settings
+    if (enableIPFiltering) {
+      Serial.print("OSC IP filtering ENABLED - Only accepting messages from: ");
+      Serial.println(designatedIP);
+    } else {
+      Serial.println("OSC IP filtering DISABLED - Accepting messages from any IP");
+    }
   } else {
-    Serial.println("OSC IP filtering DISABLED - Accepting messages from any IP");
+    Serial.println("WiFi connection failed after 30 seconds. Skipping network setup.");
   }
   
   strip.begin();
   strip.show();
+  uint32_t defaultColor = strip.Color(255, 162, 57);
   
   Serial.println("Setup test: Green LEDs for 2 seconds");
   // Setup test: turn on green for 2 seconds
@@ -101,13 +116,6 @@ void loop() {
     case STATUS_1: // user appear, red for 5s, then STATUS_2
       redSolid();
       delay(5000);
-      // if (!waitingForTimeout) {
-      //   stateStartTime = now;
-      //   waitingForTimeout = true;
-      // } else if (now - stateStartTime >= 5000) {
-      //   state = STATUS_2;
-      //   waitingForTimeout = false;
-      // }
       break;
     case STATUS_2: // user working, orange 20%
       orangeLow();
@@ -168,13 +176,11 @@ void handleOSC() {
 void routeStatus(OSCMessage &msg, int addrOffset) {
   if (msg.isInt(0)) {
     int newState = msg.getInt(0);
-    
-    // Validate state range
+    // Accept only 0-5 and map to STATUS_0..STATUS_5
     if (newState >= 0 && newState <= 5) {
       int oldState = state;
-      state = newState;
+      state = STATUS_0 + newState;
       waitingForTimeout = false;
-      
       Serial.print("OSC /status received! State changed from ");
       Serial.print(getStateName(oldState));
       Serial.print(" to ");
@@ -305,15 +311,35 @@ void handleTouch() {
 // Lighting functions
 
 void orangeBreath() {
-  static float brightness = 0;
-  static float fadeAmount = 255 / (currentBreathingRate * 50);  // Use dynamic breathing rate
-  for (int i = 0; i < NUM_LEDS; i++) {
-    strip.setPixelColor(i, strip.Color((int)(255 * brightness / 255.0), (int)(80 * brightness / 255.0), 0));
+  // Set min and max brightness (0-255)
+  const uint8_t minBrightness = 30;
+  const uint8_t maxBrightness = 200;
+  static float brightness = minBrightness;
+  static bool increasing = true;
+  // fadeAmount is based on breathing rate: higher rate = faster breathing
+  float fadeAmount = (maxBrightness - minBrightness) / (currentBreathingRate * 50.0);
+
+  // Calculate brightness step direction
+  if (increasing) {
+    brightness += fadeAmount;
+    if (brightness >= maxBrightness) {
+      brightness = maxBrightness;
+      increasing = false;
+    }
+  } else {
+    brightness -= fadeAmount;
+    if (brightness <= minBrightness) {
+      brightness = minBrightness;
+      increasing = true;
+    }
   }
+
+  // Use constant color RGB(255,162,57)
+  for (int i = 0; i < NUM_LEDS; i++) {
+    strip.setPixelColor(i, strip.Color(255, 162, 57));
+  }
+  strip.setBrightness((uint8_t)brightness);
   strip.show();
-  brightness += fadeAmount;
-  if (brightness <= 0 || brightness >= 255) fadeAmount = - fadeAmount;
-  Serial.println(brightness);
   delay(20);
 }
 
@@ -397,4 +423,31 @@ uint32_t Wheel(byte pos) {
     pos -= 170;
     return strip.Color(pos * 3, 255 - pos * 3, 0);
   }
+}
+
+void customBreathEffect(float minBrightness, float maxBrightness, float step) {
+  // Update brightness
+  if (breathingIncreasing) {
+    breathingBrightness += step;
+    if (breathingBrightness >= maxBrightness) {
+      breathingBrightness = maxBrightness;
+      breathingIncreasing = false;
+    }
+  } else {
+    breathingBrightness -= step;
+    if (breathingBrightness <= minBrightness) {
+      breathingBrightness = minBrightness;
+      breathingIncreasing = true;
+    }
+  }
+
+  // Set all LEDs to the current color and brightness
+  uint8_t r = (uint8_t)(((breathingColor >> 16) & 0xFF) * (breathingBrightness / 255.0));
+  uint8_t g = (uint8_t)(((breathingColor >> 8) & 0xFF) * (breathingBrightness / 255.0));
+  uint8_t b = (uint8_t)((breathingColor & 0xFF) * (breathingBrightness / 255.0));
+  for (int i = 0; i < NUM_LEDS; i++) {
+    strip.setPixelColor(i, strip.Color(r, g, b));
+  }
+  strip.show();
+  delay(10); // Adjust for smoother/faster effect
 }

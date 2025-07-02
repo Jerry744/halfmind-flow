@@ -17,6 +17,11 @@ WiFiUDP Udp;
 const unsigned int localPort = 8888;  // Local port to listen on
 const char* oscStatusAddress = "/status";        // OSC address for state control
 const char* oscBreathingAddress = "/breathingrate"; // OSC address for breathing rate
+const char* oscConfigAddress = "/config";            // OSC address for configuration
+
+// Designated IP address for OSC messages (change this to your sender's IP)
+IPAddress designatedIP(192, 168, 31, 128);  // Change to your designated IP address
+bool enableIPFiltering = false;  // Set to false to accept from any IP
 
 // Dynamic breathing rate control
 float currentBreathingRate = BREATH_CYCLE_LENGTH;  // Current breathing rate in seconds
@@ -57,7 +62,15 @@ void setup() {
   Udp.begin(localPort);
   Serial.print("OSC listening on port: ");
   Serial.println(localPort);
-  Serial.println("OSC addresses: /status, /breathingrate");
+  Serial.println("OSC addresses: /status, /breathingrate, /config");
+  
+  // Display OSC security settings
+  if (enableIPFiltering) {
+    Serial.print("OSC IP filtering ENABLED - Only accepting messages from: ");
+    Serial.println(designatedIP);
+  } else {
+    Serial.println("OSC IP filtering DISABLED - Accepting messages from any IP");
+  }
   
   strip.begin();
   strip.show();
@@ -118,13 +131,35 @@ void handleOSC() {
   int size = Udp.parsePacket();
   
   if (size > 0) {
+    // Get the sender's IP address
+    IPAddress senderIP = Udp.remoteIP();
+    
+    // Check if IP filtering is enabled and if the sender is authorized
+    if (enableIPFiltering && senderIP != designatedIP) {
+      Serial.print("OSC message rejected from unauthorized IP: ");
+      Serial.println(senderIP);
+      
+      // Clear the packet buffer
+      while (size--) {
+        Udp.read();
+      }
+      return;
+    }
+    
+    // Process the message if IP is authorized or filtering is disabled
     while (size--) {
       msg.fill(Udp.read());
     }
     
     if (!msg.hasError()) {
+      Serial.print("OSC message accepted from: ");
+      Serial.println(senderIP);
+      
       msg.route(oscStatusAddress, routeStatus);
       msg.route(oscBreathingAddress, routeBreathingRate);
+      msg.route(oscConfigAddress, routeConfig);
+    } else {
+      Serial.println("OSC message has errors");
     }
   }
 }
@@ -140,7 +175,7 @@ void routeStatus(OSCMessage &msg, int addrOffset) {
       state = newState;
       waitingForTimeout = false;
       
-      Serial.print("OSC /status received! State changed from "); 8888
+      Serial.print("OSC /status received! State changed from ");
       Serial.print(getStateName(oldState));
       Serial.print(" to ");
       Serial.println(getStateName(state));
@@ -193,6 +228,49 @@ void routeBreathingRate(OSCMessage &msg, int addrOffset) {
     }
   } else {
     Serial.println("OSC /breathingrate message received but not a number");
+  }
+}
+
+// Route function for configuration OSC messages
+void routeConfig(OSCMessage &msg, int addrOffset) {
+  // /config/ipfilter 0|1 - Enable/disable IP filtering
+  // /config/setip a.b.c.d - Set designated IP address
+  
+  if (msg.match("/ipfilter", addrOffset)) {
+    if (msg.isInt(0)) {
+      bool newFiltering = msg.getInt(0) != 0;
+      bool oldFiltering = enableIPFiltering;
+      enableIPFiltering = newFiltering;
+      
+      Serial.print("OSC /config/ipfilter received! IP filtering changed from ");
+      Serial.print(oldFiltering ? "ENABLED" : "DISABLED");
+      Serial.print(" to ");
+      Serial.println(enableIPFiltering ? "ENABLED" : "DISABLED");
+    }
+  } 
+  else if (msg.match("/setip", addrOffset)) {
+    if (msg.isString(0)) {
+      char ipStr[16];
+      msg.getString(0, ipStr, 16);
+      
+      // Parse IP address string (format: "192.168.1.100")
+      IPAddress newIP;
+      if (newIP.fromString(ipStr)) {
+        IPAddress oldIP = designatedIP;
+        designatedIP = newIP;
+        
+        Serial.print("OSC /config/setip received! Designated IP changed from ");
+        Serial.print(oldIP);
+        Serial.print(" to ");
+        Serial.println(designatedIP);
+      } else {
+        Serial.print("Invalid IP address format received: ");
+        Serial.println(ipStr);
+      }
+    }
+  }
+  else {
+    Serial.println("Unknown config command received");
   }
 }
 

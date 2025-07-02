@@ -226,6 +226,16 @@ class RadarDataProcessor:
         sock = socket1
         sock.sendto(message, (UDP_IP, UDP_PORT))
 
+    def detect_presence_by_range_profile(self, range_fft_abs, max_range, threshold=0.05):
+        """
+        基于距离范围内的 range_fft_abs 最大值判断人体存在。
+        返回 1 表示有人，0 表示无人。
+        """
+        start_bin = int(object_distance_start_range / max_range * (fft_size_range_profile / 2))
+        stop_bin = int(object_distance_stop_range / max_range * (fft_size_range_profile / 2))
+        presence_max = np.max(range_fft_abs[start_bin:stop_bin])
+        return 1 if presence_max > threshold else 0
+
     def process_data(self):
         global slow_time_buffer_data, I_Q_envelop, range_fft_abs, wrapped_phase_plot, unwrapped_phase_plot, \
             filtered_breathing_plot, filtered_heart_plot, buffer_raw_I_Q_fft, phase_unwrap_fft, breathing_fft, \
@@ -337,13 +347,23 @@ class RadarDataProcessor:
                     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                     # Breathing and heart rate estimation
                     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-                    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                     breathing_rate_estimation_index = np.roll(breathing_rate_estimation_index, -1)
                     breathing_rate_estimation_index[-1] = breathing_rate_estimation_index[-2]
                     rate_index_br = self.find_signal_peaks(breathing_fft, index_start_breathing,
                                                            index_end_breathing, peak_finding_distance)
                     if rate_index_br != 0:
                         breathing_rate_estimation_index[-1] = rate_index_br
+                        # --- Send breathing rate via OSC ---
+                        xb = x_axis_vital_signs_spectrum[
+                            round(fft_size_vital_signs / 2 + np.mean(
+                                breathing_rate_estimation_index[estimation_index_breathing:]))] * 60
+                        breathing_rate_bpm = round(xb) - 2
+                        if breathing_rate_bpm > 0:
+                            try:
+                                self.osc_client.send_message("/breathingrate", float(breathing_rate_bpm))
+                                print(f"OSC send breathing rate: {breathing_rate_bpm}")
+                            except Exception as e:
+                                print(f"OSC send error: {e}")
                     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                     heart_rate_estimation_index = np.roll(heart_rate_estimation_index, -1)
                     heart_rate_estimation_index[-1] = heart_rate_estimation_index[-2]
@@ -369,6 +389,12 @@ class RadarDataProcessor:
                     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                     counter = 0
+
+                    presence_status = self.detect_presence_by_range_profile(range_fft_abs, max_range)
+                    try:
+                        self.osc_client.send_message("/status", presence_status)
+                    except Exception as e:
+                        print(f"OSC send error (presence): {e}")
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

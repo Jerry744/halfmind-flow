@@ -50,6 +50,12 @@ unsigned long lastTouchTime = 0;
 
 // Helper function to connect to WiFi with timeout (returns true if connected, false if timeout)
 bool connectToWiFiWithTimeout(const char* ssid, const char* password, unsigned long timeoutMs) {
+  // Turn all LEDs yellow while connecting
+  for (int i = 0; i < NUM_LEDS; i++) {
+    strip.setPixelColor(i, strip.Color(30, 30, 0)); // Yellow
+  }
+  strip.show();
+
   WiFi.begin(ssid, password);
   Serial.print("Connecting to WiFi");
   unsigned long startAttemptTime = millis();
@@ -58,13 +64,37 @@ bool connectToWiFiWithTimeout(const char* ssid, const char* password, unsigned l
     Serial.print(".");
   }
   Serial.println();
-  return WiFi.status() == WL_CONNECTED;
+
+  bool connected = WiFi.status() == WL_CONNECTED;
+  if (connected) {
+    // Show green for 2 seconds
+    for (int i = 0; i < NUM_LEDS; i++) {
+      strip.setPixelColor(i, strip.Color(0, 30, 0)); // Green
+    }
+    strip.show();
+    delay(2000);
+  } else {
+    // Show red for 2 seconds
+    for (int i = 0; i < NUM_LEDS; i++) {
+      strip.setPixelColor(i, strip.Color(30, 0, 0)); // Red
+    }
+    strip.show();
+    delay(2000);
+  }
+  // Clear LEDs after feedback
+  strip.clear();
+  strip.show();
+  return connected;
 }
 
 void setup() {
   Serial.begin(115200);
   Serial.println("Starting LED State Controller with OSC...");
   
+  // Initialize LED strip
+  strip.begin();
+  strip.show();
+
   // Connect to WiFi with 30s timeout
   bool wifiConnected = connectToWiFiWithTimeout(ssid, password, 30000);
   if (wifiConnected) {
@@ -85,20 +115,6 @@ void setup() {
   } else {
     Serial.println("WiFi connection failed after 30 seconds. Skipping network setup.");
   }
-  
-  strip.begin();
-  strip.show();
-  uint32_t defaultColor = strip.Color(255, 162, 57);
-  
-  Serial.println("Setup test: Green LEDs for 2 seconds");
-  // Setup test: turn on green for 2 seconds
-  for (int i = 0; i < NUM_LEDS; i++) {
-    strip.setPixelColor(i, strip.Color(0, 255, 0));
-  }
-  strip.show();
-  delay(2000);
-  strip.clear();
-  strip.show();
   
   state = STATUS_0;
   Serial.println("Setup complete. Entering STATUS_0 (nobody)");
@@ -334,11 +350,13 @@ void orangeBreath() {
     }
   }
 
-  // Use constant color RGB(255,162,57)
+  // Use constant color RGB(255,162,57), scale by brightness/255
+  uint8_t r = (uint8_t)(255 * (brightness / 255.0));
+  uint8_t g = (uint8_t)(162 * (brightness / 255.0));
+  uint8_t b = (uint8_t)(57 * (brightness / 255.0));
   for (int i = 0; i < NUM_LEDS; i++) {
-    strip.setPixelColor(i, strip.Color(255, 162, 57));
+    strip.setPixelColor(i, strip.Color(r, g, b));
   }
-  strip.setBrightness((uint8_t)brightness);
   strip.show();
   delay(20);
 }
@@ -351,9 +369,13 @@ void redSolid() {
 }
 
 void orangeLow() {
+  // 20% brightness of orange (255,162,57)
+  float scale = 51.0 / 255.0; // 51 is 20% of 255
+  uint8_t r = (uint8_t)(255 * scale);
+  uint8_t g = (uint8_t)(162 * scale);
+  uint8_t b = (uint8_t)(57 * scale);
   for (int i = 0; i < NUM_LEDS; i++) {
-    strip.setPixelColor(i, strip.Color(51, 16, 0)); // 20% of 255, 80
-    strip.setBrightness(51);
+    strip.setPixelColor(i, strip.Color(r, g, b));
   }
   strip.show();
 }
@@ -450,4 +472,16 @@ void customBreathEffect(float minBrightness, float maxBrightness, float step) {
   }
   strip.show();
   delay(10); // Adjust for smoother/faster effect
+}
+
+// Helper to set all LEDs to a color with brightness scaling (0-255)
+void setAllLedsColorWithBrightness(uint8_t r, uint8_t g, uint8_t b, uint8_t brightness) {
+  float scale = brightness / 255.0;
+  uint8_t r_scaled = (uint8_t)(r * scale);
+  uint8_t g_scaled = (uint8_t)(g * scale);
+  uint8_t b_scaled = (uint8_t)(b * scale);
+  for (int i = 0; i < NUM_LEDS; i++) {
+    strip.setPixelColor(i, strip.Color(r_scaled, g_scaled, b_scaled));
+  }
+  strip.show();
 }

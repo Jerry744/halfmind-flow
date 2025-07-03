@@ -58,8 +58,8 @@ figure_update_time = 25  # m second
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 fft_size_range_profile = samples_per_chirp * 2
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-object_distance_start_range = 0.6
-object_distance_stop_range = 0.9
+object_distance_start_range = 0.4
+object_distance_stop_range = 0.8
 epsilon_value = 0.00000001
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # peak detection
@@ -360,7 +360,7 @@ class RadarDataProcessor:
                         breathing_rate_bpm = round(xb) - 2
                         if breathing_rate_bpm > 0:
                             try:
-                                self.osc_client.send_message("/breathingrate", float(breathing_rate_bpm))
+                                # self.osc_client.send_message("/breathingrate", float(breathing_rate_bpm))
                                 print(f"OSC send breathing rate: {breathing_rate_bpm}")
                             except Exception as e:
                                 print(f"OSC send error: {e}")
@@ -398,6 +398,21 @@ class RadarDataProcessor:
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+    def calculate_breathing_rate_variability(self, window_seconds=240):
+        """
+        Calculate the rolling standard deviation (variability) of the breathing rate estimation
+        over the last `window_seconds` seconds (default 4 minutes).
+        Returns the standard deviation of nonzero breathing rates in the window.
+        """
+        # Calculate how many samples correspond to the window
+        window_size = int(window_seconds * vital_signs_sample_rate)
+        # Use the global breathing_rate_estimation_value buffer
+        window = breathing_rate_estimation_value[-window_size:]
+        # Only consider nonzero values (to avoid startup zeros)
+        valid = window[window > 0]
+        if len(valid) == 0:
+            return 0.0
+        return float(np.std(valid))
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 def update_plots():

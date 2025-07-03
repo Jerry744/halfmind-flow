@@ -31,11 +31,13 @@ from scipy.signal import lfilter, firwin, find_peaks
 from pythonosc.udp_client import SimpleUDPClient
 import paho.mqtt.client as mqtt
 
+DEBUG_MODE = True
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ENABLE_RANGE_PROFILE_PLOT = True
-ENABLE_PHASE_UNWRAP_PLOT = True
-ENABLE_VITALSIGNS_SPECTRUM = True
-ENABLE_ESTIMATION_PLOT = True
+ENABLE_PHASE_UNWRAP_PLOT = False
+ENABLE_VITALSIGNS_SPECTRUM = False
+ENABLE_ESTIMATION_PLOT = False
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Device settings
 num_rx_antennas = 3
@@ -99,9 +101,10 @@ neulog_start_time = start_time
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # UDP Configuration
-UDP_IP = "192.168.31.128" # Replace with your UDP server IP
-UDP_PORT = 8888 # Replace with your UDP server port
-
+UDP_IP_ESP32 = "192.168.31.128" # Replace with your UDP server IP
+UDP_PORT_ESP32 = 8888 # Replace with your UDP server port
+UDP_IP_MAX = "127.0.0.1"
+UDP_PORT_MAX = 8000
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 range_profile_peak_index = 0
 max_index_processing = True
@@ -149,10 +152,10 @@ class RadarDataProcessor:
     def __init__(self):
         self.buffer_size = 100
         self.breath_stream = [] # Buffer to store the last 300 breath values
-        self.osc_client = SimpleUDPClient("127.0.0.1", 7400)  # IP and port for OSC communication
-        self.mqtt_client = configure_mqtt()  # Initialize MQTT client
-        self.last_output_time = time.time()  # Initialize the timer
-        self.intervals = []  # Rolling window to store intervals
+        self.presence_max_buffer = []
+        self.ema_alpha = 2 / (20 + 1)  # 1秒平滑，20帧/秒
+        self.presence_ema = None
+        self.last_existence = 0
 
     def calc_range_fft(self, data_queue):
         if not data_queue.empty():
@@ -224,17 +227,34 @@ class RadarDataProcessor:
 
     def send_data_udp(self,socket1, message):
         sock = socket1
-        sock.sendto(message, (UDP_IP, UDP_PORT))
+        sock.sendto(message, (UDP_IP_ESP32, UDP_PORT_ESP32))
 
-    def detect_presence_by_range_profile(self, range_fft_abs, max_range, threshold=0.05):
+    def detect_presence_by_range_profile(self, range_fft_abs, max_range, threshold=0.002):
         """
         基于距离范围内的 range_fft_abs 最大值判断人体存在。
         返回 1 表示有人，0 表示无人。
+        对 presence_max 做缓存和EMA平滑。
         """
         start_bin = int(object_distance_start_range / max_range * (fft_size_range_profile / 2))
         stop_bin = int(object_distance_stop_range / max_range * (fft_size_range_profile / 2))
         presence_max = np.max(range_fft_abs[start_bin:stop_bin])
-        return 1 if presence_max > threshold else 0
+        
+        # 缓存最新的presence_max
+        self.presence_max_buffer.append(presence_max)
+        if len(self.presence_max_buffer) > 20:  # 只保留最近1秒的数据
+            self.presence_max_buffer.pop(0)
+        # 用缓存做EMA
+        if self.presence_ema is None:
+            self.presence_ema = presence_max    
+        else:
+            self.presence_ema = self.ema_alpha * presence_max + (1 - self.ema_alpha) * self.presence_ema
+
+        existence = 1 if self.presence_ema > threshold else 0
+        print(f"presence_max: {presence_max:.6f}, presence_ema: {self.presence_ema:.6f}, buffer: {self.presence_max_buffer[-1]:.6f}")
+        if existence != self.last_existence:
+            self.last_existence = existence
+            self.send_osc_messages(status=existence)
+        return existence
 
     def process_data(self):
         global slow_time_buffer_data, I_Q_envelop, range_fft_abs, wrapped_phase_plot, unwrapped_phase_plot, \
@@ -360,7 +380,7 @@ class RadarDataProcessor:
                         breathing_rate_bpm = round(xb) - 2
                         if breathing_rate_bpm > 0:
                             try:
-                                # self.osc_client.send_message("/breathingrate", float(breathing_rate_bpm))
+                                self.send_osc_messages(breathpm=breathing_rate_bpm)
                                 print(f"OSC send breathing rate: {breathing_rate_bpm}")
                             except Exception as e:
                                 print(f"OSC send error: {e}")
@@ -374,29 +394,16 @@ class RadarDataProcessor:
 
                     # Stream filtered_breathing_plot in real-time via OSC
                     breath_amplitude = self.update_scaled_breath(filtered_breathing_plot[-1])
-                    breath_udp = [recorded_time, filtered_breathing_plot[-1]]
-                    print(str(breath_udp))
-
-                    # Send filtered breathing data to Home Assistant
-                    # if breath_amplitude is not None:
-
-                    #     send_to_home_assistant(self.mqtt_client, breath_amplitude)
-                    #     # self.osc_client.send_message("home/nanoleaf/cmd", int(breath_amplitude))
-                    # print("filtered_breathing: ", breath_amplitude)
-                    self.send_data_udp(sock, str(breath_udp).encode('utf-8'))
-                    # self.osc_client.send_message("/filtered_breathing", float(filtered_breathing[-1]))
-
+                    self.send_osc_messages(amplitude=breath_amplitude)
                     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                     counter = 0
 
                     presence_status = self.detect_presence_by_range_profile(range_fft_abs, max_range)
-                    try:
-                        self.osc_client.send_message("/status", presence_status)
-                    except Exception as e:
-                        print(f"OSC send error (presence): {e}")
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                    print("human_exist" if presence_status else "human_none_exist")
+    
+                    # breathing_rate = self.calculate_breathing_rate()
+                    # print(f"Breathing rate: {breathing_rate_estimation_value[-1]} bpm")  # every 2 seconds
 
     def calculate_breathing_rate_variability(self, window_seconds=240):
         """
@@ -414,7 +421,41 @@ class RadarDataProcessor:
             return 0.0
         return float(np.std(valid))
 
+    def send_osc_messages(self, status=None, breathpm=None, brvsignal=None, amplitude=None):
+        """
+        Send OSC messages to both ESP32 and local MaxMSP clients.
+        Args:
+            status (int or None): Value for /status
+            breathpm (int or None): Value for /breathpm
+            brvsignal (int or None): Value for /brvsignal
+        """
+        clients = [
+            SimpleUDPClient(UDP_IP_ESP32, UDP_PORT_ESP32),
+            SimpleUDPClient(UDP_IP_MAX, UDP_PORT_MAX)
+        ]
+        for client in clients:
+            if status is not None:
+                try:
+                    client.send_message("/status", int(status))
+                except Exception as e:
+                    print(f"OSC send error (/status): {e}")
+            if breathpm is not None:
+                try:
+                    client.send_message("/breathpm", int(breathpm))
+                except Exception as e:
+                    print(f"OSC send error (/breathpm): {e}")
+            if brvsignal is not None:
+                try:
+                    client.send_message("/brvsignal", int(brvsignal))
+                except Exception as e:
+                    print(f"OSC send error (/brvsignal): {e}")
+            if amplitude is not None:
+                try:
+                    client.send_message("/amplitude", float(amplitude))
+                except Exception as e:
+                    print(f"OSC send error (/amplitude): {e}")
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 def update_plots():
     global breathing_rate_estimation_value, heart_rate_estimation_value, \
         breathing_rate_estimation_time_stamp, heart_rate_estimation_time_stamp

@@ -3,7 +3,7 @@
 #include <WiFiUdp.h>
 #include <OSCMessage.h>
 
-#define LED_PIN     5      // D5
+#define LED_PIN     12      // D12
 #define NUM_LEDS    7
 #define TOUCH_PIN   T0     // D4 (GPIO4, touch-capable)
 #define BREATH_CYCLE_LENGTH 4.0  // Half breathing cycle in seconds

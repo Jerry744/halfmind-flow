@@ -156,6 +156,8 @@ class RadarDataProcessor:
         self.ema_alpha = 2 / (20 + 1)  # 1秒平滑，20帧/秒
         self.presence_ema = None
         self.last_existence = 0
+        self.working_time = 0.0
+        self._last_exist_time = None
 
     def calc_range_fft(self, data_queue):
         if not data_queue.empty():
@@ -404,6 +406,16 @@ class RadarDataProcessor:
     
                     # breathing_rate = self.calculate_breathing_rate()
                     # print(f"Breathing rate: {breathing_rate_estimation_value[-1]} bpm")  # every 2 seconds
+
+                    # Track working time
+                    if presence_status == 1:
+                        if self._last_exist_time is None:
+                            self._last_exist_time = time.time()
+                    else:
+                        if self._last_exist_time is not None:
+                            self.working_time += time.time() - self._last_exist_time
+                            print(f"User focused for {self.working_time / 60:.2f} minutes")
+                            self._last_exist_time = None
 
     def calculate_breathing_rate_variability(self, window_seconds=240):
         """

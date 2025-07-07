@@ -18,6 +18,7 @@ const unsigned int localPort = 8888;  // Local port to listen on
 const char* oscStatusAddress = "/status";        // OSC address for state control
 const char* oscBreathingAddress = "/breathingrate"; // OSC address for breathing rate
 const char* oscConfigAddress = "/config";            // OSC address for configuration
+const char* oscAmplitudeAddress = "/amplitude";        // OSC address for amplitude control
 
 // Designated IP address for OSC messages (change this to your sender's IP)
 IPAddress designatedIP(192, 168, 31, 128);  // Change to your designated IP address
@@ -30,6 +31,9 @@ float currentBreathingRate = BREATH_CYCLE_LENGTH;  // Current breathing rate in 
 float breathingBrightness = 0;
 bool breathingIncreasing = true; // true = brightening, false = dimming
 uint32_t breathingColor = 0;     // Set this to strip.Color(r, g, b) before use
+
+// New global variable to store amplitude value
+float breathAmplitude = 0; // 0-100, usually max 40
 
 Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
@@ -127,14 +131,13 @@ void loop() {
   unsigned long now = millis();
   switch (state) {
     case STATUS_0: // nobody, breathing orange
-      orangeBreath();
-      break;
-    case STATUS_1: // user appear, red for 5s, then STATUS_2
-      redSolid();
-      delay(5000);
-      break;
-    case STATUS_2: // user working, orange 20%
       orangeLow();
+      break;
+    case STATUS_1: // user appear, use amplitude-based orange breath
+      orangeBreathWithAmplitude(breathAmplitude);
+      break;
+    case STATUS_2: // user working, breathing orange
+      orangeBreath();
       break;
     case STATUS_3: // out of focus, blink once, then STATUS_2
       blinkOnce();
@@ -182,6 +185,7 @@ void handleOSC() {
       msg.route(oscStatusAddress, routeStatus);
       msg.route(oscBreathingAddress, routeBreathingRate);
       msg.route(oscConfigAddress, routeConfig);
+      msg.route(oscAmplitudeAddress, routeAmplitude);
     } else {
       Serial.println("OSC message has errors");
     }
@@ -294,6 +298,19 @@ void routeConfig(OSCMessage &msg, int addrOffset) {
   else {
     Serial.println("Unknown config command received");
   }
+}
+
+// Route function for amplitude OSC messages
+void routeAmplitude(OSCMessage &msg, int addrOffset) {
+  if (msg.isFloat(0)) {
+    breathAmplitude = msg.getFloat(0);
+  } else if (msg.isInt(0)) {
+    breathAmplitude = msg.getInt(0);
+  } else {
+    Serial.println("OSC /amplitude message received but not a number");
+  }
+  Serial.print("Received /amplitude: ");
+  Serial.println(breathAmplitude);
 }
 
 // Helper function to get state name for debugging
@@ -484,4 +501,17 @@ void setAllLedsColorWithBrightness(uint8_t r, uint8_t g, uint8_t b, uint8_t brig
     strip.setPixelColor(i, strip.Color(r_scaled, g_scaled, b_scaled));
   }
   strip.show();
+}
+
+// Function to set orange LED brightness based on amplitude
+void orangeBreathWithAmplitude(float amplitude) {
+  // Clamp amplitude to 0-100
+  if (amplitude < 0) amplitude = 0;
+  if (amplitude > 40) amplitude = 40;
+  // Map amplitude (0-100, usually max 40) to brightness (20%-60%)
+  float base = 0.2; // 20%
+  float scale = 1; // 40% range
+  float brightness = base + (amplitude / 100.0) * scale; // 0.2 to 0.6
+  uint8_t led_brightness = (uint8_t)(brightness * 255);
+  setAllLedsColorWithBrightness(255, 162, 57, led_brightness);
 }

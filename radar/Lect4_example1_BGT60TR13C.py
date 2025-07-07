@@ -37,7 +37,7 @@ DEBUG_MODE = True
 ENABLE_RANGE_PROFILE_PLOT = True
 ENABLE_PHASE_UNWRAP_PLOT = True
 ENABLE_VITALSIGNS_SPECTRUM = False
-ENABLE_ESTIMATION_PLOT = False
+ENABLE_ESTIMATION_PLOT = True
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Device settings
 num_rx_antennas = 3
@@ -60,8 +60,8 @@ figure_update_time = 25  # m second
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 fft_size_range_profile = samples_per_chirp * 2
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-object_distance_start_range = 0.4
-object_distance_stop_range = 0.8
+object_distance_start_range = 0.5
+object_distance_stop_range = 1.0
 epsilon_value = 0.00000001
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # peak detection
@@ -101,7 +101,7 @@ neulog_start_time = start_time
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # UDP Configuration
-UDP_IP_ESP32 = "192.168.31.128" # Replace with your UDP server IP
+UDP_IP_ESP32 = "192.168.31.62" # Replace with your UDP server IP
 UDP_PORT_ESP32 = 8888 # Replace with your UDP server port
 UDP_IP_MAX = "127.0.0.1"
 UDP_PORT_MAX = 8000
@@ -155,9 +155,13 @@ class RadarDataProcessor:
         self.presence_max_buffer = []
         self.ema_alpha = 2 / (20 + 1)  # 1秒平滑，20帧/秒
         self.presence_ema = None
-        self.last_existence = 0
+        self.last_presence = 0
         self.working_time = 0.0
         self._last_exist_time = None
+        self.time_last_status_change = 0.0
+        # Add buffer for presence status (3 seconds)
+        self.presence_status_buffer = []
+        self.presence_buffer_seconds = 3
 
     def calc_range_fft(self, data_queue):
         if not data_queue.empty():
@@ -222,10 +226,13 @@ class RadarDataProcessor:
         min_breath = np.min(recent)
         max_breath = np.max(recent)
         if max_breath - min_breath < 1e-5:
-            return 50  # avoid divide by zero, return middle
+            return 0  # avoid divide by zero, return 0
 
         scaled = (breath_signal - min_breath) / (max_breath - min_breath) * 100
-        return np.clip(scaled, 0, 50) if np.clip(scaled, 0, 50) is not None else 0
+        # If scaled is not a valid number, return 0
+        if not np.isfinite(scaled) or scaled is None:
+            return 0
+        return np.clip(scaled, 0, 100)
 
     def send_data_udp(self,socket1, message):
         sock = socket1
@@ -243,19 +250,36 @@ class RadarDataProcessor:
         
         # 缓存最新的presence_max
         self.presence_max_buffer.append(presence_max)
-        if len(self.presence_max_buffer) > 20:  # 只保留最近1秒的数据
+        if len(self.presence_max_buffer) > 40:  # 只保留最近2秒的数据
             self.presence_max_buffer.pop(0)
         # 用缓存做EMA
         if self.presence_ema is None:
             self.presence_ema = presence_max    
         else:
             self.presence_ema = self.ema_alpha * presence_max + (1 - self.ema_alpha) * self.presence_ema
-
+        
         existence = 1 if self.presence_ema > threshold else 0
-        print(f"presence_max: {presence_max:.6f}, presence_ema: {self.presence_ema:.6f}, buffer: {self.presence_max_buffer[-1]:.6f}")
-        if existence != self.last_existence:
-            self.last_existence = existence
+        # print(f"presence_max: {presence_max:.6f}, presence_ema: {self.presence_ema:.6f}, buffer: {self.presence_max_buffer[-1]:.6f}")
+        # --- 3-second buffer logic ---
+        frame_rate = 20  # Hz, adjust if needed
+        buffer_len = int(self.presence_buffer_seconds * frame_rate)
+        self.presence_status_buffer.append(existence)
+        if len(self.presence_status_buffer) > buffer_len:
+            self.presence_status_buffer.pop(0)
+        # Only allow switch to 'not present' if buffer contains no 1
+        if existence == 0 and 1 in self.presence_status_buffer:
+            existence = 1
+        # --- end buffer logic ---
+        if existence != self.last_presence:
+            self.last_presence = existence
             self.send_osc_messages(status=existence)
+            if existence == 1:
+                print("user present")
+                self.send_osc_messages(status=1)
+            else:
+                self.send_osc_messages(status=0)
+                print(f"working time: {self.working_time / 60:.2f} minutes")
+                print("user left")
         return existence
 
     def process_data(self):
@@ -327,25 +351,6 @@ class RadarDataProcessor:
                     filtered_breathing_plot = np.roll(filtered_breathing_plot, -counter)
                     filtered_breathing_plot[-counter:] = filtered_breathing[-counter:]
                     recorded_time = current_time
-                    # print("filtered_breathing: ", filtered_breathing[-counter:])
-                    
-
-                    # Check the interval between outputs
-                    # current_time = time.time()
-                    # interval = current_time - self.last_output_time
-                    # self.last_output_time = current_time
-                    # print(f"Interval between outputs: {interval:.3f} seconds")
-
-                    # Maintain a rolling window of 100 intervals
-                    # self.intervals.append(interval)
-                    # if len(self.intervals) > 100:
-                    #     self.intervals.pop(0)
-
-                    # Calculate the estimated sampling frequency
-                    # if len(self.intervals) == 100:
-                    #     avg_interval = sum(self.intervals) / len(self.intervals)
-                    #     estimated_sampling_frequency = 1 / avg_interval
-                    #     print(f"Estimated Sampling Frequency (rolling 100 samples): {estimated_sampling_frequency:.2f} Hz")
 
                     cycle2, trend = sm.tsa.filters.hpfilter(unwrapped_phase_plot[-processing_data_size:],
                                                             3 * vital_signs_sample_rate)
@@ -366,24 +371,23 @@ class RadarDataProcessor:
                                                          processing_data_size)
                     heart_fft = self.vital_signs_fft(filtered_heart_plot[-processing_data_size:], fft_size_vital_signs,
                                                      processing_data_size)
-                    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
                     # Breathing and heart rate estimation
-                    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                     breathing_rate_estimation_index = np.roll(breathing_rate_estimation_index, -1)
                     breathing_rate_estimation_index[-1] = breathing_rate_estimation_index[-2]
                     rate_index_br = self.find_signal_peaks(breathing_fft, index_start_breathing,
                                                            index_end_breathing, peak_finding_distance)
                     if rate_index_br != 0:
                         breathing_rate_estimation_index[-1] = rate_index_br
-                        # --- Send breathing rate via OSC ---
                         xb = x_axis_vital_signs_spectrum[
                             round(fft_size_vital_signs / 2 + np.mean(
                                 breathing_rate_estimation_index[estimation_index_breathing:]))] * 60
                         breathing_rate_bpm = round(xb) - 2
+                        # --- Send breathing rate via OSC ---
                         if breathing_rate_bpm > 0:
                             try:
                                 self.send_osc_messages(breathpm=breathing_rate_bpm)
-                                print(f"OSC send breathing rate: {breathing_rate_bpm}")
+                                # print(f"OSC send breathing rate: {breathing_rate_bpm}")
                             except Exception as e:
                                 print(f"OSC send error: {e}")
                     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -401,11 +405,8 @@ class RadarDataProcessor:
                     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                     counter = 0
 
+                    # Detect presence
                     presence_status = self.detect_presence_by_range_profile(range_fft_abs, max_range)
-                    print("human_exist" if presence_status else "human_none_exist")
-    
-                    # breathing_rate = self.calculate_breathing_rate()
-                    # print(f"Breathing rate: {breathing_rate_estimation_value[-1]} bpm")  # every 2 seconds
 
                     # Track working time
                     if presence_status == 1:
@@ -414,7 +415,7 @@ class RadarDataProcessor:
                     else:
                         if self._last_exist_time is not None:
                             self.working_time += time.time() - self._last_exist_time
-                            print(f"User focused for {self.working_time / 60:.2f} minutes")
+                            # print(f"User focused for {self.working_time / 60:.2f} minutes")
                             self._last_exist_time = None
 
     def calculate_breathing_rate_variability(self, window_seconds=240):

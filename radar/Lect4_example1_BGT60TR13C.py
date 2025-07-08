@@ -113,10 +113,19 @@ max_index_processing = True
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 def read_data(device):
     global frame_counter
-    while True:
-        frame_contents = device.get_next_frame()
-        for frame in frame_contents:
-            data_queue.put(frame)
+    try:
+        while True:
+            frame_contents = device.get_next_frame()
+            for frame in frame_contents:
+                data_queue.put(frame)
+    except Exception as e:
+        print(f"[Sensor Teminated] {e}")
+        try:
+            radar_processor.send_osc_messages(status=0)
+        except Exception as ee:
+            print(f"[OSC ERROR] {ee}")
+        print("Program terminated")
+        sys.exit(1)  # Terminate the program
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -260,7 +269,8 @@ class RadarDataProcessor:
         
         existence = 1 if self.presence_ema > threshold else 0
         # print(f"presence_max: {presence_max:.6f}, presence_ema: {self.presence_ema:.6f}, buffer: {self.presence_max_buffer[-1]:.6f}")
-        # --- 3-second buffer logic ---
+        
+        # 3-second buffer to avoid false positive
         frame_rate = 20  # Hz, adjust if needed
         buffer_len = int(self.presence_buffer_seconds * frame_rate)
         self.presence_status_buffer.append(existence)
@@ -269,7 +279,8 @@ class RadarDataProcessor:
         # Only allow switch to 'not present' if buffer contains no 1
         if existence == 0 and 1 in self.presence_status_buffer:
             existence = 1
-        # --- end buffer logic ---
+        
+        # send OSC message if presence status changes
         if existence != self.last_presence:
             self.last_presence = existence
             self.send_osc_messages(status=existence)
@@ -409,13 +420,18 @@ class RadarDataProcessor:
                     presence_status = self.detect_presence_by_range_profile(range_fft_abs, max_range)
 
                     # Track working time
+                    if not hasattr(self, 'working_time'):
+                        self.working_time = 0.0
+                        self._last_exist_time = None
                     if presence_status == 1:
                         if self._last_exist_time is None:
                             self._last_exist_time = time.time()
                     else:
                         if self._last_exist_time is not None:
                             self.working_time += time.time() - self._last_exist_time
-                            # print(f"User focused for {self.working_time / 60:.2f} minutes")
+                            now_str = time.strftime('%H:%M:%S', time.localtime())
+                            print(f"[{now_str}] User focused for {self.working_time / 60:.2f} minutes")
+                            self.working_time = 0.0
                             self._last_exist_time = None
 
     def calculate_breathing_rate_variability(self, window_seconds=240):

@@ -318,7 +318,7 @@ String getStateName(int stateNum) {
   switch (stateNum) {
     case SETUP_TEST: return "SETUP_TEST";
     case STATUS_0: return "STATUS_0 (nobody)";
-    case STATUS_1: return "STATUS_1 (user appear)";
+    case STATUS_1: return "STATUS_1 (working)";
     case STATUS_2: return "STATUS_2 (user working)";
     case STATUS_3: return "STATUS_3 (out of focus)";
     case STATUS_4: return "STATUS_4 (time up)";
@@ -386,8 +386,8 @@ void redSolid() {
 }
 
 void orangeLow() {
-  // 20% brightness of orange (255,162,57)
-  float scale = 51.0 / 255.0; // 51 is 20% of 255
+  // 8% brightness of orange (255,162,57)
+  float scale = 20.0 / 255.0; // 8% of 255 (20/255)
   uint8_t r = (uint8_t)(255 * scale);
   uint8_t g = (uint8_t)(162 * scale);
   uint8_t b = (uint8_t)(57 * scale);
@@ -506,12 +506,14 @@ void setAllLedsColorWithBrightness(uint8_t r, uint8_t g, uint8_t b, uint8_t brig
 // Function to set orange LED brightness based on amplitude
 void orangeBreathWithAmplitude(float amplitude) {
   // Clamp amplitude to 0-100
-  if (amplitude < 0) amplitude = 0;
+  // if (amplitude < 0) amplitude = 0;
   if (amplitude > 40) amplitude = 40;
   // Map amplitude (0-100, usually max 40) to brightness (20%-60%)
   float base = 0.2; // 20%
   float scale = 1; // 40% range
   float brightness = base + (amplitude / 100.0) * scale; // 0.2 to 0.6
+  // Amplitude < 0 is for debugging, make sure brightness is not negative
+  if (brightness < 0) brightness = 0;
   uint8_t led_brightness = (uint8_t)(brightness * 255);
   setAllLedsColorWithBrightness(255, 162, 57, led_brightness);
 }

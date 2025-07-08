@@ -1,108 +1,112 @@
 # T.O.V.A. (Test of Variables of Attention) - HTML/JS Version
 
-这是一个基于HTML/JavaScript的T.O.V.A.测试实现，完全复制了原始Inquisit版本的功能和科学有效性。
+This is an HTML/JavaScript implementation of the T.O.V.A. test that precisely replicates the functionality and scientific validity of the original Inquisit version.
 
-## 功能特点
+## Features
 
-- ✅ **精确复制原始测试**: 基于官方Inquisit脚本重建
-- ✅ **全屏模式**: 测试期间自动全屏显示
-- ✅ **高精度计时**: 使用`performance.now()`实现低延迟响应测量
-- ✅ **空格键控制**: 支持空格键和GUI按钮双重控制
-- ✅ **数据导出**: 自动生成原始数据和汇总数据的CSV文件
-- ✅ **科学统计**: 包含所有原始测试的统计指标（d-prime、z-scores等）
+- ✅ **Exact Replication of Original Test**: Rebuilt based on the official Inquisit script
+- ✅ **Fullscreen Mode**: Automatic fullscreen display during testing
+- ✅ **High Precision Timing**: Low-latency response measurement using `performance.now()`
+- ✅ **Spacebar Control**: Dual control with spacebar and GUI buttons
+- ✅ **Data Export**: Automatic generation of raw data and summary CSV files
+- ✅ **Scientific Statistics**: All original test statistical indicators (d-prime, z-scores, etc.)
 
-## 测试结构
+## Test Structure
 
-### 测试阶段
-1. **练习阶段**: 50试次 (1:1 目标/非目标比例) - 约3分钟
-2. **低频率阶段1**: 162试次 (36目标, 126非目标) - 约5.5分钟  
-3. **低频率阶段2**: 162试次 (36目标, 126非目标) - 约5.5分钟
-4. **高频率阶段1**: 162试次 (126目标, 36非目标) - 约5.5分钟
-5. **高频率阶段2**: 162试次 (126目标, 36非目标) - 约5.5分钟
+### Test Phases
+1. **Practice Phase**: 50 trials (1:1 target/non-target ratio) - ~3 minutes
+2. **Low Frequency Phase 1**: 162 trials (36 targets, 126 non-targets) - ~5.5 minutes  
+3. **Low Frequency Phase 2**: 162 trials (36 targets, 126 non-targets) - ~5.5 minutes
+4. **High Frequency Phase 1**: 162 trials (126 targets, 36 non-targets) - ~5.5 minutes
+5. **High Frequency Phase 2**: 162 trials (126 targets, 36 non-targets) - ~5.5 minutes
 
-**总测试时间**: 约24分钟
+**Total Test Time**: ~24 minutes
 
-### 刺激特征
-- **目标刺激**: 白色方形背景内顶部的小黑方块
-- **非目标刺激**: 白色方形背景内底部的小黑方块
-- **刺激持续时间**: 100ms
-- **刺激间隔**: 2000ms (SOA)
+### Stimulus Characteristics
+- **Target Stimulus**: Small black square at the top of white background square
+- **Non-target Stimulus**: Small black square at the bottom of white background square
+- **Stimulus Duration**: 100ms
+- **Stimulus Interval**: 2000ms (SOA)
 
-### 响应要求
-- **目标出现时**: 尽快按空格键
-- **非目标出现时**: 不要响应
-- **最小有效反应时**: 200ms (低于此值被认为是预期性响应)
+### Response Requirements
+- **When Target Appears**: Press spacebar as quickly as possible
+- **When Non-target Appears**: Do not respond
+- **Minimum Valid Response Time**: 200ms (responses below this are considered anticipatory)
 
-## 使用方法
+## Usage
 
-### 1. 快速开始
+### 1. Quick Start
 ```bash
-# 在浏览器中打开
+# Open in browser
 open index.html
-# 或使用本地服务器
+# Or use local server
 python -m http.server 8000
-# 然后访问 http://localhost:8000
+# Then visit http://localhost:8000
 ```
 
-### 2. 测试流程
-1. 打开`index.html`
-2. 输入被试信息（姓名、组别、会话）
-3. 阅读说明并查看示例刺激
-4. 完成练习阶段
-5. 进行正式测试（4个测试块）
-6. 测试结束后下载数据文件
+### 2. Test Flow
+1. Open `index.html`
+2. Enter subject information (name, group, session)
+3. Read instructions and view example stimuli
+4. Complete practice phase
+5. Perform formal test (4 test blocks)
+6. Download data files after test completion
 
-### 3. 空格键控制
-- 在任何界面都可以使用空格键前进
-- 测试期间只有空格键响应有效
-- 支持鼠标点击GUI按钮（可选）
+### 3. Spacebar Control
+- Use spacebar to advance at any interface
+- Only spacebar responses are valid during testing
+- Mouse clicking on GUI buttons is supported (optional)
 
-## 数据输出
+## Data Output
 
-### 原始数据 (tova_raw_*.txt)
-包含每个试次的详细信息：
-- 响应时间、准确性、刺激类型
-- 预期性响应、错误警报标记
-- 错误警报后命中反应时间
+### Raw Data (tova_raw_*.txt)
+Contains detailed information for each trial:
+- Response time, accuracy, stimulus type
+- Anticipatory response, false alarm markers
+- Post-commission hit response times
 
-### 汇总数据 (tova_summary_*.txt)  
-包含统计指标：
-- **基本指标**: 命中率、漏报率、错误警报率
-- **反应时统计**: 平均值、标准差
-- **d-prime分析**: 信号检测理论指标
-- **z-scores**: 标准化得分
-- **分块统计**: 各阶段独立分析
+### Summary Data (tova_summary_*.txt)  
+Contains statistical indicators:
+- **Basic Indicators**: Hit rate, omission rate, false alarm rate
+- **Response Time Statistics**: Mean, standard deviation
+- **d-prime Analysis**: Signal detection theory indicators
+- **z-scores**: Standardized scores
+- **Block Statistics**: Independent analysis for each phase
 
-## 技术规格
+## Technical Specifications
 
-### 精确计时
-- 使用`performance.now()`获得亚毫秒精度
-- 事件监听器优化以减少延迟
-- 异步处理确保实时响应
+### Precision Timing
+- Uses `performance.now()` for sub-millisecond precision
+- Optimized event listeners to reduce latency
+- Asynchronous processing ensures real-time response
 
-### 数据完整性
-- 所有统计计算与原始Inquisit版本完全匹配
-- z-score调整遵循Gregg & Sedikides (2010)标准
-- d-prime计算使用标准信号检测理论公式
+### Data Integrity
+- All statistical calculations exactly match the original Inquisit version
+- z-score adjustments follow Gregg & Sedikides (2010) standards
+- d-prime calculations use standard signal detection theory formulas
 
-### 浏览器兼容性
-- Chrome (推荐)
+### Browser Compatibility
+- Chrome (recommended)
 - Firefox  
 - Safari
 - Edge
 
-## 文件结构
+## File Structure
 ```
 tova/
-├── index.html          # 主测试界面
-├── style.css           # 样式文件
-├── tova.js            # 测试逻辑
-└── README.md          # 说明文档
+├── index.html          # Main test interface
+├── style.css           # Stylesheet
+├── tova.js             # Test logic
+├── demo.html           # Demo and launch page
+├── quick-test.html     # Quick test version for debugging
+├── README_CN.md        # Chinese documentation
+├── README.md           # English documentation
+└── tova.iqx            # Original Inquisit script
 ```
 
-## 科学验证
+## Scientific Validation
 
-此实现基于以下科学文献：
+This implementation is based on the following scientific literature:
 
 1. **Greenberg, L.M., & Waldman, I.D. (1993)**. Developmental normative data on the Test of Variable of Attention (T.O.V.A.™). *Journal of Child Psychology and Psychiatry*, 34, 1019–1030.
 
@@ -110,29 +114,71 @@ tova/
 
 3. **Gregg, A. & Sedikides, C. (2010)**. Narcissistic Fragility: Rethinking Its Links to Explicit and Implicit Self-esteem. *Self and Identity*, 9:2, 142-161.
 
-## 注意事项
+## Important Notes
 
-1. **环境要求**: 安静的测试环境，减少干扰
-2. **硬件要求**: 响应式键盘，稳定的计算机性能
-3. **被试准备**: 确保被试理解任务要求
-4. **数据备份**: 及时保存和备份测试数据
+1. **Environment Requirements**: Quiet testing environment, minimize distractions
+2. **Hardware Requirements**: Responsive keyboard, stable computer performance
+3. **Subject Preparation**: Ensure subjects understand task requirements
+4. **Data Backup**: Save and backup test data promptly
 
-## 故障排除
+## Troubleshooting
 
-### 常见问题
-- **全屏不工作**: 确保浏览器支持全屏API
-- **按键无响应**: 检查焦点是否在测试窗口
-- **数据下载失败**: 检查浏览器下载权限
+### Common Issues
+- **Fullscreen Not Working**: Ensure browser supports fullscreen API
+- **No Key Response**: Check if focus is on test window
+- **Data Download Fails**: Check browser download permissions
 
-### 性能优化
-- 关闭其他应用程序以确保计算机性能
-- 使用有线键盘以减少无线延迟
-- 确保浏览器为最新版本
+### Performance Optimization
+- Close other applications to ensure computer performance
+- Use wired keyboard to reduce wireless latency
+- Ensure browser is up to date
 
-## 许可证
+## License
 
-此项目基于原始T.O.V.A. Inquisit脚本重新实现，仅用于研究和教育目的。请遵守相关的知识产权和使用条款。
+This project is a reimplementation of the original T.O.V.A. Inquisit script for research and educational purposes only. Please comply with relevant intellectual property and usage terms.
 
-## 技术支持
+## Technical Support
 
-如有技术问题或功能建议，请联系开发团队。 
+For technical issues or feature suggestions, please contact the development team.
+
+## Quick Test Mode
+
+For development and debugging, use `quick-test.html`:
+- Shortened version (total ~2 minutes)
+- Real-time debug panel
+- Quick function verification
+- Practice: 6 trials, Test blocks: 20 trials each
+
+## Demo Mode
+
+Use `demo.html` for:
+- Test instructions and stimulus examples
+- Understanding test requirements and precautions
+- One-click launch of formal test
+
+## Data Format Examples
+
+### Raw Data Format
+```
+build	computer.platform	date	time	subject	group	session
+blockcode	blocknum	trialcode	trialnum	frequency	response
+correct	latency	anticipatoryResponse	commissionerror	postCommissionHit
+```
+
+### Summary Data Format
+Contains comprehensive statistical analysis:
+- Basic indicators (hit rate, false alarm rate, omission rate)
+- Response time statistics (mean, standard deviation)
+- Signal detection indicators (d-prime, z-scores)
+- Block analysis (independent statistics for each phase)
+
+## Research Applications
+
+This T.O.V.A. implementation is suitable for:
+- Attention Deficit Hyperactivity Disorder (ADHD) assessment
+- Cognitive research studies
+- Clinical applications
+- Educational psychology research
+- Neuroscience studies
+
+All data output formats are consistent with the original Inquisit version, ensuring scientific validity of results. 

@@ -562,7 +562,8 @@ app = QApplication([])
 def generate_range_profile_plot():
     global object_distance_start_range, object_distance_stop_range
     plot = pg.plot(title='Range Profile')
-    plot.showGrid(x=True, y=True)
+    plot.showGrid(x=True, y=True, alpha=0.3)  
+    plot.setBackground("w")
     plot.setLabel('bottom', 'Range [m]')
     plot.setLabel('left', 'Amplitude')
     plot.addLegend()
@@ -573,37 +574,31 @@ def generate_range_profile_plot():
         ('lightcoral', 'Selected Range Index')
     ]
     plot_objects = [[] for _ in range(len(plots))]
-    # for i in range(num_rx_antennas):
     for j, (color, name) in enumerate(plots):
         if name == 'TI - rangeBinIndexPhase':
             symbol_pen = pg.mkPen(None)  # No border for the symbol
-            symbol_brush = pg.mkBrush('sandybrown')  # Red color for the symbol
-            plot_obj = plot.plot(pen=None, symbol='s', symbolPen=symbol_pen, symbolBrush=symbol_brush, symbolSize=15,
-                                 name=f'{name}')
+            symbol_brush = pg.mkBrush('sandybrown')
+            plot_obj = plot.plot(pen=None, symbol='s', symbolPen=symbol_pen, symbolBrush=symbol_brush, symbolSize=15, name=f'{name}')
         elif name == 'Selected Range Index':
-            symbol_pen = pg.mkPen(None)  # No border for the symbol
-            symbol_brush = pg.mkBrush('lightcoral')  # Red color for the symbol
-            plot_obj = plot.plot(pen=None, symbol='o', symbolPen=symbol_pen, symbolBrush=symbol_brush, symbolSize=15,
-                                 name=f'{name}')
+            symbol_pen = pg.mkPen(None)
+            symbol_brush = pg.mkBrush('lightcoral')
+            plot_obj = plot.plot(pen=None, symbol='o', symbolPen=symbol_pen, symbolBrush=symbol_brush, symbolSize=15, name=f'{name}')
         else:
-            line_style = {'color': color, 'style': [QtCore.Qt.PenStyle.SolidLine, QtCore.Qt.PenStyle.DashLine, QtCore.Qt.PenStyle.DotLine][0]}
-            plot_obj = plot.plot(pen=line_style, name=f'{name}')
+            # Use orange for breathing data, otherwise keep original color
+            line_color = 'orange' if 'breath' in name.lower() or 'Sum of Rx channels' in name else color
+            line_style = {'color': line_color, 'width': 2}
+            plot_obj = plot.plot(pen=pg.mkPen(**line_style), name=f'{name}')
             plot_obj.setVisible(False)
         plot_objects[j].append(plot_obj)
     plot_objects[0][0].setVisible(True)
-    linear_region_range_profle = pg.LinearRegionItem([object_distance_start_range, object_distance_stop_range],
-                                                     brush=(255, 255, 0, 20))  # Yellow color with opacity
+    linear_region_range_profle = pg.LinearRegionItem([object_distance_start_range, object_distance_stop_range], brush=(255, 255, 0, 20))
     plot.addItem(linear_region_range_profle)
-
     def region_changed():
         global object_distance_start_range, object_distance_stop_range
         region = linear_region_range_profle.getRegion()
         object_distance_start_range = region[0]
         object_distance_stop_range = region[1]
-        # print("Linear Region Position:", region)
-
     linear_region_range_profle.sigRegionChanged.connect(region_changed)
-
     return plot, plot_objects
 
 
@@ -619,7 +614,8 @@ if ENABLE_RANGE_PROFILE_PLOT:
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 def generate_phase_unwrap_plot():
     plot = pg.plot(title='Slow-Time Phase Unwrap')
-    plot.showGrid(x=True, y=True)
+    plot.showGrid(x=True, y=True, alpha=0.3)
+    plot.setBackground("w")
     plot.setLabel('bottom', 'Time [s]')
     plot.setLabel('left', 'Unwrapped Phase [deg.]')
     plot.addLegend()
@@ -629,19 +625,19 @@ def generate_phase_unwrap_plot():
         ('hotpink', 'Envelop'),
         ('y', 'Wrapped Angle'),
         ('m', 'Phase Unwrap'),
-        ('g', 'Breathing'),
+        ('orange', 'Breathing'),  # Breathing data in orange
         ('c', 'Heart')
     ]
     plot_objects = [[] for _ in range(len(plots))]
-    # for i in range(num_rx_antennas):
     for j, (color, name) in enumerate(plots):
-        line_style = {'color': color, 'style': [QtCore.Qt.PenStyle.SolidLine, QtCore.Qt.PenStyle.DashLine, QtCore.Qt.PenStyle.DotLine][0]}
-        plot_obj = plot.plot(pen=line_style, name=f'{name}')
+        # Use orange for breathing
+        line_color = 'orange' if 'breath' in name.lower() else color
+        line_style = {'color': line_color, 'width': 2}
+        plot_obj = plot.plot(pen=pg.mkPen(**line_style), name=f'{name}')
         plot_obj.setVisible(False)
         plot_objects[j].append(plot_obj)
-    plot_objects[4][0].setVisible(True)
-    plot_objects[6][0].setVisible(True)
-
+    plot_objects[5][0].setVisible(True)
+    # plot_objects[6][0].setVisible(True)
     return plot, plot_objects
 
 
@@ -655,74 +651,63 @@ if ENABLE_PHASE_UNWRAP_PLOT:
 # Breathing Spectrum plot setting up
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 def generate_vitalsigns_spectrum_plot():
-    global low_breathing, high_breathing, low_heart, high_heart, breathing_b, heart_b, \
-        index_start_breathing, index_end_breathing, index_start_heart, index_end_heart
+    global low_breathing, high_breathing, low_heart, high_heart, breathing_b, heart_b, index_start_breathing, index_end_breathing, index_start_heart, index_end_heart
     plot = pg.plot(title='Vital Signs Spectrum')
-    plot.showGrid(x=True, y=True)
+    plot.showGrid(x=True, y=True, alpha=0.3)
+    plot.setBackground("w")
     plot.setLabel('bottom', 'Frequency [Hz]')
     plot.setLabel('left', 'Amplitude')
     plot.addLegend()
     plots = [
         ('orange', 'I&Q Raw Data'),
         ('m', 'Phase Unwrap'),
-        ('g', 'Breathing'),
+        ('orange', 'Breathing'),  # Breathing data in orange
         ('c', 'Heart'),
-        ('g', 'Breathing Peak'),
+        ('orange', 'Breathing Peak'),  # Breathing peak in orange
         ('c', 'Heart Peak')
     ]
     plot_objects = [[] for _ in range(len(plots))]
-    # for i in range(num_rx_antennas):
     for j, (color, name) in enumerate(plots):
-        # plot_obj = plot.plot(pen=line_style, name=f'{name} (Rx {i + 1})')
         if name == 'Breathing Peak':
-            symbol_pen = pg.mkPen(None)  # No border for the symbol
-            symbol_brush = pg.mkBrush('g')  # Red color for the symbol
-            plot_obj = plot.plot(pen=None, symbol='s', symbolPen=symbol_pen, symbolBrush=symbol_brush, symbolSize=15,
-                                 name=f'{name}')
+            symbol_pen = pg.mkPen(None)
+            symbol_brush = pg.mkBrush('orange')
+            plot_obj = plot.plot(pen=None, symbol='s', symbolPen=symbol_pen, symbolBrush=symbol_brush, symbolSize=15, name=f'{name}')
         elif name == 'Heart Peak':
-            symbol_pen = pg.mkPen(None)  # No border for the symbol
-            symbol_brush = pg.mkBrush('c')  # Red color for the symbol
-            plot_obj = plot.plot(pen=None, symbol='d', symbolPen=symbol_pen, symbolBrush=symbol_brush, symbolSize=15,
-                                 name=f'{name}')
+            symbol_pen = pg.mkPen(None)
+            symbol_brush = pg.mkBrush('c')
+            plot_obj = plot.plot(pen=None, symbol='d', symbolPen=symbol_pen, symbolBrush=symbol_brush, symbolSize=15, name=f'{name}')
         else:
-            line_style = {'color': color, 'style': [QtCore.Qt.PenStyle.SolidLine, QtCore.Qt.PenStyle.DashLine, QtCore.Qt.PenStyle.DotLine][0]}
-            plot_obj = plot.plot(pen=line_style, name=f'{name}')
+            # Use orange for breathing
+            line_color = 'orange' if 'breath' in name.lower() else color
+            line_style = {'color': line_color, 'width': 2}
+            plot_obj = plot.plot(pen=pg.mkPen(**line_style), name=f'{name}')
         plot_obj.setVisible(False)
         plot_objects[j].append(plot_obj)
     plot_objects[2][0].setVisible(True)
     plot_objects[3][0].setVisible(True)
-
     linear_region_breathing = pg.LinearRegionItem([low_breathing, high_breathing], brush=(255, 255, 0, 20))
     plot.addItem(linear_region_breathing, 'Breathing Linear Region')
-
     def linear_region_breathing_changed():
         global low_breathing, high_breathing, breathing_b, index_start_breathing, index_end_breathing
         region = linear_region_breathing.getRegion()
-        if (region[0] < vital_signs_sample_rate / 4 and region[1] < vital_signs_sample_rate / 2 and
-                region[0] > 0 and region[1] > 0):
+        if (region[0] < vital_signs_sample_rate / 4 and region[1] < vital_signs_sample_rate / 2 and region[0] > 0 and region[1] > 0):
             low_breathing = region[0]
             high_breathing = region[1]
-            breathing_b = firwin(filter_order, [low_breathing / nyquist_freq, high_breathing / nyquist_freq],
-                                 pass_zero=False)
+            breathing_b = firwin(filter_order, [low_breathing / nyquist_freq, high_breathing / nyquist_freq], pass_zero=False)
             index_start_breathing = int(low_breathing / vital_signs_sample_rate * fft_size_vital_signs)
             index_end_breathing = int(high_breathing / vital_signs_sample_rate * fft_size_vital_signs)
-
     linear_region_breathing.sigRegionChanged.connect(linear_region_breathing_changed)
-
     linear_region_heart = pg.LinearRegionItem([low_heart, high_heart], brush=(255, 255, 0, 20))
     plot.addItem(linear_region_heart)
-
     def linear_region_heart_changed():
         global low_heart, high_heart, heart_b, index_start_heart, index_end_heart
         region = linear_region_heart.getRegion()
-        if (region[0] < vital_signs_sample_rate / 4 and region[1] < vital_signs_sample_rate / 2 and
-                region[0] > 0 and region[1] > 0):
+        if (region[0] < vital_signs_sample_rate / 4 and region[1] < vital_signs_sample_rate / 2 and region[0] > 0 and region[1] > 0):
             low_heart = region[0]
             high_heart = region[1]
             heart_b = firwin(filter_order, [low_heart / nyquist_freq, high_heart / nyquist_freq], pass_zero=False)
             index_start_heart = int(low_heart / vital_signs_sample_rate * fft_size_vital_signs)
             index_end_heart = int(high_heart / vital_signs_sample_rate * fft_size_vital_signs)
-
     linear_region_heart.sigRegionChanged.connect(linear_region_heart_changed)
     plot.setXRange(low_breathing, high_heart + 0.5)
     return plot, plot_objects
@@ -740,33 +725,23 @@ if ENABLE_VITALSIGNS_SPECTRUM:
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 def generate_estimation_plot():
     plot = pg.plot(title='Vital Signs Estimation')
-    plot.showGrid(x=True, y=True)
+    plot.showGrid(x=True, y=True, alpha=0.3)
+    plot.setBackground("w")
     plot.setLabel('bottom', 'Time [s]')
     plot.setLabel('left', 'Rate [b.p.m.]')
     plot.addLegend()
     plots = [
-        ('g', 'Breathing'),
+        ('orange', 'Breathing'),  # Breathing data in orange
         ('c', 'Heart')
     ]
     plot_objects = [[] for _ in range(len(plots))]
-    # for i in range(num_rx_antennas):
     for j, (color, name) in enumerate(plots):
-        line_style = {'color': color, 'style': [QtCore.Qt.PenStyle.SolidLine, QtCore.Qt.PenStyle.DashLine, QtCore.Qt.PenStyle.DotLine][0]}
-        if name == 'Breathing ':
-            symbol_pen = pg.mkPen(None)  # No border for the symbol
-            symbol_brush = pg.mkBrush('g')  # Red color for the symbol
-            plot_obj = plot.plot(pen=None, symbol='s', symbolPen=symbol_pen, symbolBrush=symbol_brush, symbolSize=8,
-                                 name=f'{name}')
-        elif name == 'Heart ':
-            symbol_pen = pg.mkPen(None)  # No border for the symbol
-            symbol_brush = pg.mkBrush('c')  # Red color for the symbol
-            plot_obj = plot.plot(pen=None, symbol='o', symbolPen=symbol_pen, symbolBrush=symbol_brush, symbolSize=8,
-                                 name=f'{name}')
-        else:
-            plot_obj = plot.plot(pen=line_style, name=f'{name}')
+        # Use orange for breathing
+        line_color = 'orange' if 'breath' in name.lower() else color
+        line_style = {'color': line_color, 'width': 2}
+        plot_obj = plot.plot(pen=pg.mkPen(**line_style), name=f'{name}')
         plot_obj.setVisible(True)
         plot_objects[j].append(plot_obj)
-    # plot_objects[0][0].setVisible(True)
     plot_objects[1][0].setVisible(False)
     return plot, plot_objects
 

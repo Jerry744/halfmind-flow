@@ -17,5 +17,6 @@ client_max = SimpleUDPClient(ip_max, port_max)
 
 # client_max.send_message("/breathpm", 17)
 # client.send_message("/status", 1)
-client.send_message("/amplitude", 40)
+# client.send_message("/amplitude", 40)
+client.send_message("/brvsignal", 1)
 # print("OSC message sent: /breathpm 17 to 127.0.0.1:8000")

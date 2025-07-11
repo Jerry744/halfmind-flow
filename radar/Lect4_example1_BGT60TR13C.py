@@ -108,20 +108,25 @@ UDP_PORT_MAX = 8000
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 range_profile_peak_index = 0
 max_index_processing = True
+# Global variables for thread management
+data_thread = None
+process_thread = None
+radar_processor = None
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # data queue
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 def read_data(device):
-    global frame_counter
+    global frame_counter, radar_processor
     try:
-        while True:
+        while radar_processor is None or not radar_processor.should_exit:
             frame_contents = device.get_next_frame()
             for frame in frame_contents:
                 data_queue.put(frame)
     except Exception as e:
         print(f"[Sensor Teminated] {e}")
         try:
-            radar_processor.send_osc_messages(status=0)
+            send_osc_messages(status=0)
         except Exception as ee:
             print(f"[OSC ERROR] {ee}")
         print("Program terminated")
@@ -170,7 +175,12 @@ class RadarDataProcessor:
         self.time_last_status_change = 0.0
         # Add buffer for presence status (3 seconds)
         self.presence_status_buffer = []
-        self.presence_buffer_seconds = 3
+        self.presence_buffer_seconds = 5
+        # Add reset timer for phase unwrap
+        self.last_reset_time = time.time()
+        self.reset_interval = 180  # 3 minutes in seconds
+        # Add exit flag for graceful shutdown
+        self.should_exit = False
 
     def calc_range_fft(self, data_queue):
         if not data_queue.empty():
@@ -259,7 +269,7 @@ class RadarDataProcessor:
         
         # 缓存最新的presence_max
         self.presence_max_buffer.append(presence_max)
-        if len(self.presence_max_buffer) > 40:  # 只保留最近2秒的数据
+        if len(self.presence_max_buffer) > 60:  # 只保留最近2秒的数据
             self.presence_max_buffer.pop(0)
         # 用缓存做EMA
         if self.presence_ema is None:
@@ -283,14 +293,16 @@ class RadarDataProcessor:
         # send OSC message if presence status changes
         if existence != self.last_presence:
             self.last_presence = existence
-            self.send_osc_messages(status=existence)
+            send_osc_messages(status=existence)
             if existence == 1:
-                print("user present")
-                self.send_osc_messages(status=1)
+                now_str = time.strftime('%H:%M:%S', time.localtime())
+                print(f"[{now_str}] user present")
+                send_osc_messages(status=1)
             else:
-                self.send_osc_messages(status=0)
+                send_osc_messages(status=0)
+                now_str = time.strftime('%H:%M:%S', time.localtime())
                 print(f"working time: {self.working_time / 60:.2f} minutes")
-                print("user left")
+                print(f"[{now_str}] user left")
         return existence
 
     def process_data(self):
@@ -302,10 +314,15 @@ class RadarDataProcessor:
         counter = 0
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-        while True:
+        while not self.should_exit:
             time.sleep(0.001)
+            
+            # Check if it's time to reset phase data (every 3 minutes)
+            current_time = time.time()
+            if current_time - self.last_reset_time >= self.reset_interval:
+                self.reset_phase_data()
+            
             if not data_queue.empty():
-                current_time = time.time()
                 time_passed = current_time - start_time
                 start_time = current_time
 
@@ -397,7 +414,7 @@ class RadarDataProcessor:
                         # --- Send breathing rate via OSC ---
                         if breathing_rate_bpm > 0:
                             try:
-                                self.send_osc_messages(breathpm=breathing_rate_bpm)
+                                send_osc_messages(breathpm=breathing_rate_bpm)
                                 # print(f"OSC send breathing rate: {breathing_rate_bpm}")
                             except Exception as e:
                                 print(f"OSC send error: {e}")
@@ -411,7 +428,13 @@ class RadarDataProcessor:
 
                     # Stream filtered_breathing_plot in real-time via OSC
                     breath_amplitude = self.update_scaled_breath(filtered_breathing_plot[-1])
-                    self.send_osc_messages(amplitude=breath_amplitude)
+                    send_osc_messages(amplitude=breath_amplitude)
+                    
+                    # Update scaled breath amplitude buffer for plotting
+                    global scaled_breath_amplitude
+                    if breath_amplitude is not None:
+                        scaled_breath_amplitude = np.roll(scaled_breath_amplitude, -1)
+                        scaled_breath_amplitude[-1] = breath_amplitude
                     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                     counter = 0
@@ -450,39 +473,97 @@ class RadarDataProcessor:
             return 0.0
         return float(np.std(valid))
 
-    def send_osc_messages(self, status=None, breathpm=None, brvsignal=None, amplitude=None):
+    def reset_phase_data(self):
         """
-        Send OSC messages to both ESP32 and local MaxMSP clients.
-        Args:
-            status (int or None): Value for /status
-            breathpm (int or None): Value for /breathpm
-            brvsignal (int or None): Value for /brvsignal
+        Reset phase-related data buffers to prevent accumulated errors.
+        This method resets all phase unwrap related variables and other radar data buffers.
         """
-        clients = [
-            SimpleUDPClient(UDP_IP_ESP32, UDP_PORT_ESP32),
-            SimpleUDPClient(UDP_IP_MAX, UDP_PORT_MAX)
-        ]
-        for client in clients:
-            if status is not None:
-                try:
-                    client.send_message("/status", int(status))
-                except Exception as e:
-                    print(f"OSC send error (/status): {e}")
-            if breathpm is not None:
-                try:
-                    client.send_message("/breathpm", int(breathpm))
-                except Exception as e:
-                    print(f"OSC send error (/breathpm): {e}")
-            if brvsignal is not None:
-                try:
-                    client.send_message("/brvsignal", int(brvsignal))
-                except Exception as e:
-                    print(f"OSC send error (/brvsignal): {e}")
-            if amplitude is not None:
-                try:
-                    client.send_message("/amplitude", float(amplitude))
-                except Exception as e:
-                    print(f"OSC send error (/amplitude): {e}")
+        global wrapped_phase_plot, unwrapped_phase_plot, filtered_breathing_plot, filtered_heart_plot, \
+               buffer_raw_I_Q_fft, phase_unwrap_fft, breathing_fft, heart_fft, \
+               breathing_rate_estimation_index, heart_rate_estimation_index, \
+               breathing_rate_estimation_value, heart_rate_estimation_value, \
+               range_profile_peak_indices, radar_time_stamp, slow_time_buffer_data, I_Q_envelop, \
+               scaled_breath_amplitude
+        
+        # Reset phase-related buffers
+        wrapped_phase_plot.fill(0)
+        unwrapped_phase_plot.fill(0)
+        filtered_breathing_plot.fill(0)
+        filtered_heart_plot.fill(0)
+        
+        # Reset FFT buffers
+        buffer_raw_I_Q_fft.fill(0)
+        phase_unwrap_fft.fill(0)
+        breathing_fft.fill(0)
+        heart_fft.fill(0)
+        
+        # Reset estimation buffers
+        breathing_rate_estimation_index.fill(0)
+        heart_rate_estimation_index.fill(0)
+        breathing_rate_estimation_value.fill(0)
+        heart_rate_estimation_value.fill(0)
+        scaled_breath_amplitude.fill(0)
+        
+        # Reset range profile and time buffers
+        range_profile_peak_indices.fill(0)
+        radar_time_stamp.fill(0)
+        slow_time_buffer_data.fill(0)
+        I_Q_envelop.fill(0)
+        
+        # Reset internal buffers
+        self.breath_stream.clear()
+        self.presence_max_buffer.clear()
+        self.presence_status_buffer.clear()
+        self.presence_ema = None
+        
+        # Update reset time
+        self.last_reset_time = time.time()
+        
+        print(f"[{time.strftime('%H:%M:%S', time.localtime())}] Phase data reset completed to prevent accumulated errors")
+    
+    def stop(self):
+        """Stop the processing thread"""
+        self.should_exit = True
+        print("Radar processor stopping...")
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+def send_osc_messages(status=None, breathpm=None, brvsignal=None, amplitude=None):
+    """
+    Send OSC messages to both ESP32 and local MaxMSP clients.
+    Args:
+        status (int or None): Value for /status
+        breathpm (int or None): Value for /breathpm
+        brvsignal (int or None): Value for /brvsignal
+        amplitude (float or None): Value for /amplitude
+    """
+    clients = [
+        SimpleUDPClient(UDP_IP_ESP32, UDP_PORT_ESP32),
+        SimpleUDPClient(UDP_IP_MAX, UDP_PORT_MAX)
+    ]
+    for client in clients:
+        if status is not None:
+            try:
+                client.send_message("/status", int(status))
+            except Exception as e:
+                pass
+                # print(f"OSC send error (/status): {e}")
+        if breathpm is not None:
+            try:
+                client.send_message("/breathpm", int(breathpm))
+            except Exception as e:
+                print(f"OSC send error (/breathpm): {e}")
+        if brvsignal is not None:
+            try:
+                client.send_message("/brvsignal", int(brvsignal))
+            except Exception as e:
+                print(f"OSC send error (/brvsignal): {e}")
+        if amplitude is not None:
+            try:
+                client.send_message("/amplitude", float(amplitude))
+            except Exception as e:
+                print(f"OSC send error (/amplitude): {e}")
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 def update_plots():
@@ -507,6 +588,8 @@ def update_plots():
         phase_unwrap_plots[4][0].setData(radar_time_stamp, unwrapped_phase_plot * 180 / np.pi)
         phase_unwrap_plots[5][0].setData(radar_time_stamp, filtered_breathing_plot * 180 / np.pi)
         phase_unwrap_plots[6][0].setData(radar_time_stamp, filtered_heart_plot * 180 / np.pi)
+        # Update scaled breath amplitude plot
+        phase_unwrap_plots[7][0].setData(radar_time_stamp, scaled_breath_amplitude)
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # breathing fft plot
@@ -626,17 +709,24 @@ def generate_phase_unwrap_plot():
         ('y', 'Wrapped Angle'),
         ('m', 'Phase Unwrap'),
         ('orange', 'Breathing'),  # Breathing data in orange
-        ('c', 'Heart')
+        ('c', 'Heart'),
+        ('black', 'Scaled Breath Amplitude')  # Scaled breath amplitude in black
     ]
     plot_objects = [[] for _ in range(len(plots))]
     for j, (color, name) in enumerate(plots):
-        # Use orange for breathing
-        line_color = 'orange' if 'breath' in name.lower() else color
-        line_style = {'color': line_color, 'width': 2}
-        plot_obj = plot.plot(pen=pg.mkPen(**line_style), name=f'{name}')
-        plot_obj.setVisible(False)
+        if 'Scaled Breath Amplitude' in name:
+            # Black solid line for scaled breath amplitude
+            line_style = {'color': 'black', 'width': 2}
+            plot_obj = plot.plot(pen=pg.mkPen(**line_style), name=f'{name}')
+            plot_obj.setVisible(True)  # Set visible on start
+        else:
+            # Use orange for breathing
+            line_color = 'orange' if 'breath' in name.lower() else color
+            line_style = {'color': line_color, 'width': 2}
+            plot_obj = plot.plot(pen=pg.mkPen(**line_style), name=f'{name}')
+            plot_obj.setVisible(False)
         plot_objects[j].append(plot_obj)
-    plot_objects[5][0].setVisible(True)
+    plot_objects[5][0].setVisible(True)  # Keep breathing visible
     # plot_objects[6][0].setVisible(True)
     return plot, plot_objects
 
@@ -757,6 +847,20 @@ if ENABLE_ESTIMATION_PLOT:
 timer = QTimer()
 timer.timeout.connect(update_plots)
 timer.start(figure_update_time)  # Update the plots every 100 milliseconds
+def cleanup_on_exit():
+    """Cleanup function to stop all threads when application exits"""
+    global data_thread, process_thread, radar_processor
+    send_osc_messages(status=0)
+    print("OSC send status=0")
+    print("Cleaning up threads...")
+    if radar_processor:
+        radar_processor.stop()
+    if process_thread and process_thread.is_alive():
+        process_thread.join(timeout=2)
+    if data_thread and data_thread.is_alive():
+        data_thread.join(timeout=2)
+    print("Cleanup completed")
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # main
@@ -831,6 +935,8 @@ if __name__ == "__main__":
         heart_rate_estimation_index = np.zeros(buffer_data_size)
         breathing_rate_estimation_value = np.zeros(buffer_data_size)
         heart_rate_estimation_value = np.zeros(buffer_data_size)
+        # Add buffer for scaled breath amplitude
+        scaled_breath_amplitude = np.zeros(buffer_data_size)
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         x_axis_range_profile = np.linspace(0, max_range, int(fft_size_range_profile / 2))
         x_axis_vital_signs_spectrum = np.linspace(-vital_signs_sample_rate / 2, vital_signs_sample_rate / 2,
@@ -857,6 +963,10 @@ if __name__ == "__main__":
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        
+        # Connect cleanup function to application about to quit
+        app.aboutToQuit.connect(cleanup_on_exit)
+        
         sys.exit(app.exec_())
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

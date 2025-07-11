@@ -10,16 +10,17 @@
 		}
 ,
 		"classnamespace" : "box",
-		"rect" : [ 218.0, 472.0, 1044.0, 782.0 ],
+		"rect" : [ 434.0, 100.0, 1044.0, 779.0 ],
 		"gridsize" : [ 15.0, 15.0 ],
 		"boxes" : [ 			{
 				"box" : 				{
-					"id" : "obj-205",
-					"maxclass" : "message",
-					"numinlets" : 2,
-					"numoutlets" : 1,
-					"outlettype" : [ "" ],
-					"patching_rect" : [ 992.000029563903809, 252.000007510185242, 50.0, 22.0 ]
+					"id" : "obj-175",
+					"maxclass" : "number",
+					"numinlets" : 1,
+					"numoutlets" : 2,
+					"outlettype" : [ "", "bang" ],
+					"parameter_enable" : 0,
+					"patching_rect" : [ 961.000029385089874, 219.990000000000009, 50.0, 22.0 ]
 				}
 
 			}
@@ -387,7 +388,7 @@
 					"numinlets" : 2,
 					"numoutlets" : 2,
 					"outlettype" : [ "", "" ],
-					"patching_rect" : [ 894.382093906402588, 153.697859873771677, 91.0, 22.0 ],
+					"patching_rect" : [ 869.473715305328369, 153.697859873771677, 91.0, 22.0 ],
 					"text" : "route /brvsignal"
 				}
 
@@ -733,7 +734,7 @@
 					"maxclass" : "comment",
 					"numinlets" : 1,
 					"numoutlets" : 0,
-					"patching_rect" : [ 640.0, 182.0, 214.189174890518188, 74.0 ],
+					"patching_rect" : [ 640.0, 182.0, 215.0, 74.0 ],
 					"text" : "Demo: change the number to simulate breath change. \nGeneral breathing rate\nRatio: 12-20 per minute\n0.2 to 0.33 Hz"
 				}
 
@@ -1027,11 +1028,11 @@
 									"patching_rect" : [ 405.0, 318.0, 50.0, 23.0 ],
 									"rnbo_classname" : "number",
 									"rnbo_extra_attributes" : 									{
-										"maximum" : "<none>",
 										"minimum" : "<none>",
+										"maximum" : "<none>",
+										"order" : "",
 										"preset" : 0,
-										"initialFormat" : "float",
-										"order" : ""
+										"initialFormat" : "float"
 									}
 ,
 									"rnbo_serial" : 1,
@@ -1069,11 +1070,11 @@
 									"patching_rect" : [ 138.0, 117.0, 50.0, 23.0 ],
 									"rnbo_classname" : "number",
 									"rnbo_extra_attributes" : 									{
-										"maximum" : "<none>",
 										"minimum" : "<none>",
+										"maximum" : "<none>",
+										"order" : "",
 										"preset" : 0,
-										"initialFormat" : "float",
-										"order" : ""
+										"initialFormat" : "float"
 									}
 ,
 									"rnbo_serial" : 2,
@@ -1095,13 +1096,13 @@
 									"patching_rect" : [ 138.0, 69.0, 152.000004529953003, 22.666673123836517 ],
 									"rnbo_classname" : "slider",
 									"rnbo_extra_attributes" : 									{
+										"mult" : 1.0,
 										"size" : 10.0,
 										"min" : 0.0,
 										"floatoutput" : 1,
-										"mult" : 1.0,
+										"order" : "",
 										"preset" : 0,
-										"value" : 0.0,
-										"order" : ""
+										"value" : 0.0
 									}
 ,
 									"rnbo_serial" : 1,
@@ -1121,8 +1122,8 @@
 									"patching_rect" : [ 28.0, 399.0, 73.333335518836975, 73.333335518836975 ],
 									"rnbo_classname" : "toggle",
 									"rnbo_extra_attributes" : 									{
-										"preset" : 0,
-										"order" : ""
+										"order" : "",
+										"preset" : 0
 									}
 ,
 									"rnbo_serial" : 1,
@@ -1679,11 +1680,11 @@
 													"patching_rect" : [ 445.0, 167.0, 49.0, 23.0 ],
 													"rnbo_classname" : "number",
 													"rnbo_extra_attributes" : 													{
-														"maximum" : "<none>",
 														"minimum" : "<none>",
+														"maximum" : "<none>",
+														"order" : "",
 														"preset" : 0,
-														"initialFormat" : "float",
-														"order" : ""
+														"initialFormat" : "float"
 													}
 ,
 													"rnbo_serial" : 1,
@@ -1948,11 +1949,11 @@
 													"patching_rect" : [ 405.0, 269.0, 50.0, 23.0 ],
 													"rnbo_classname" : "number",
 													"rnbo_extra_attributes" : 													{
-														"maximum" : "<none>",
 														"minimum" : "<none>",
+														"maximum" : "<none>",
+														"order" : "",
 														"preset" : 0,
-														"initialFormat" : "float",
-														"order" : ""
+														"initialFormat" : "float"
 													}
 ,
 													"rnbo_serial" : 2,
@@ -1971,11 +1972,11 @@
 													"patching_rect" : [ 329.0, 346.0, 39.0, 23.0 ],
 													"rnbo_classname" : "number",
 													"rnbo_extra_attributes" : 													{
-														"maximum" : "<none>",
 														"minimum" : "<none>",
+														"maximum" : "<none>",
+														"order" : "",
 														"preset" : 0,
-														"initialFormat" : "float",
-														"order" : ""
+														"initialFormat" : "float"
 													}
 ,
 													"rnbo_serial" : 3,
@@ -1992,6 +1993,10 @@
 													"outlettype" : [ "", "" ],
 													"patching_rect" : [ 329.0, 235.0, 59.0, 23.0 ],
 													"rnbo_classname" : "t",
+													"rnbo_extra_attributes" : 													{
+														"triggers" : ""
+													}
+,
 													"rnbo_serial" : 1,
 													"rnbo_uniqueid" : "t_obj-183",
 													"rnboinfo" : 													{
@@ -2261,11 +2266,11 @@
 									"patching_rect" : [ 447.0, 490.0, 117.0, 23.0 ],
 									"rnbo_classname" : "p",
 									"rnbo_extra_attributes" : 									{
-										"polyphony" : -1.0,
 										"receivemode" : "local",
 										"args" : [  ],
-										"notecontroller" : 0,
+										"polyphony" : -1.0,
 										"voicecontrol" : "simple",
+										"notecontroller" : 0,
 										"exposevoiceparams" : 0
 									}
 ,
@@ -2693,11 +2698,11 @@
 									"patching_rect" : [ 598.0, 156.0, 89.0, 41.0 ],
 									"rnbo_classname" : "number",
 									"rnbo_extra_attributes" : 									{
-										"maximum" : "<none>",
 										"minimum" : "<none>",
+										"maximum" : "<none>",
+										"order" : "",
 										"preset" : 0,
-										"initialFormat" : "float",
-										"order" : ""
+										"initialFormat" : "float"
 									}
 ,
 									"rnbo_serial" : 3,
@@ -2716,11 +2721,11 @@
 									"patching_rect" : [ 519.3333340883255, 214.0, 50.0, 23.0 ],
 									"rnbo_classname" : "number",
 									"rnbo_extra_attributes" : 									{
-										"maximum" : "<none>",
 										"minimum" : "<none>",
+										"maximum" : "<none>",
+										"order" : "",
 										"preset" : 0,
-										"initialFormat" : "float",
-										"order" : ""
+										"initialFormat" : "float"
 									}
 ,
 									"rnbo_serial" : 4,
@@ -2742,13 +2747,13 @@
 									"patching_rect" : [ 496.0, 112.0, 73.3333340883255, 73.3333340883255 ],
 									"rnbo_classname" : "dial",
 									"rnbo_extra_attributes" : 									{
+										"mult" : 1.0,
 										"size" : 50.0,
 										"min" : 0.0,
 										"floatoutput" : 0,
-										"mult" : 1.0,
+										"order" : "",
 										"preset" : 0,
-										"value" : 0.0,
-										"order" : ""
+										"value" : 0.0
 									}
 ,
 									"rnbo_serial" : 1,
@@ -11925,7 +11930,7 @@
 			}
 , 			{
 				"patchline" : 				{
-					"destination" : [ "obj-205", 0 ],
+					"destination" : [ "obj-175", 0 ],
 					"order" : 0,
 					"source" : [ "obj-322", 0 ]
 				}

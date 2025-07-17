@@ -113,6 +113,13 @@ data_thread = None
 process_thread = None
 radar_processor = None
 
+# Global variables for breathing rate baseline (survive data refresh)
+bpm_buffer = []  # Store breathing rates for baseline calculation
+baseline_breathing_rate = None  # Calculated baseline breathing rate
+max_breathing_rate = 20  # Maximum breathing rate (140% of baseline)
+baseline_calculated = False  # Flag to ensure baseline is calculated only once
+mean_breathing_rate = None  # Mean breathing rate
+bpm_buffer_size = frame_rate * 160
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # data queue
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -181,6 +188,8 @@ class RadarDataProcessor:
         self.reset_interval = 180  # 3 minutes in seconds
         # Add exit flag for graceful shutdown
         self.should_exit = False
+        # Add brv signal for anxiety intervention
+        self.need_brv_intervention = False
 
     def calc_range_fft(self, data_queue):
         if not data_queue.empty():
@@ -253,11 +262,32 @@ class RadarDataProcessor:
             return 0
         return np.clip(scaled, 0, 100)
 
-    def send_data_udp(self,socket1, message):
-        sock = socket1
-        sock.sendto(message, (UDP_IP_ESP32, UDP_PORT_ESP32))
+    # def calculate_mean_breath(self, breath_per_minute):
+    #     """
+    #     Calculate the mean breath rate of the breath_per_minute.
+    #     If the breath_per_minute is None, return None.
+    #     If the breath_per_minute is not None, add to buffer
+    #     When the buffer is full, calculate the mean breath rate of the buffer.
+    #     If the buffer is not full, return None.
+    #     """
+    #     global mean_breathing_rate, bpm_buffer, baseline_calculated, baseline_breathing_rate, max_breathing_rate
+    #     if breath_per_minute is None:
+    #         return None
+    #     if len(bpm_buffer) > bpm_buffer_size:
+    #         bpm_buffer.pop(0)
+    #         bpm_buffer.append(breath_per_minute)
+    #         mean_breathing_rate = np.mean(bpm_buffer)
+    #         if not baseline_calculated:
+    #             baseline_breathing_rate = mean_breathing_rate
+    #             baseline_calculated = True
+    #             max_breathing_rate = baseline_breathing_rate * 1.4
+    #             print(f"Baseline breathing rate: {baseline_breathing_rate}, max breathing rate: {max_breathing_rate}")
+    #     else:
+    #         bpm_buffer.append(breath_per_minute)
+        
+    #     return mean_breathing_rate
 
-    def detect_presence_by_range_profile(self, range_fft_abs, max_range, threshold=0.002):
+    def detect_presence_by_range_profile(self, range_fft_abs, max_range, threshold=0.0018):
         """
         基于距离范围内的 range_fft_abs 最大值判断人体存在。
         返回 1 表示有人，0 表示无人。
@@ -280,7 +310,7 @@ class RadarDataProcessor:
         existence = 1 if self.presence_ema > threshold else 0
         # print(f"presence_max: {presence_max:.6f}, presence_ema: {self.presence_ema:.6f}, buffer: {self.presence_max_buffer[-1]:.6f}")
         
-        # 3-second buffer to avoid false positive
+        # presence_buffer_seconds buffer to avoid false positive
         frame_rate = 20  # Hz, adjust if needed
         buffer_len = int(self.presence_buffer_seconds * frame_rate)
         self.presence_status_buffer.append(existence)
@@ -319,8 +349,8 @@ class RadarDataProcessor:
             
             # Check if it's time to reset phase data (every 3 minutes)
             current_time = time.time()
-            if current_time - self.last_reset_time >= self.reset_interval:
-                self.reset_phase_data()
+            # if current_time - self.last_reset_time >= self.reset_interval:
+            #     self.reset_phase_data()
             
             if not data_queue.empty():
                 time_passed = current_time - start_time
@@ -405,6 +435,7 @@ class RadarDataProcessor:
                     breathing_rate_estimation_index[-1] = breathing_rate_estimation_index[-2]
                     rate_index_br = self.find_signal_peaks(breathing_fft, index_start_breathing,
                                                            index_end_breathing, peak_finding_distance)
+                    
                     if rate_index_br != 0:
                         breathing_rate_estimation_index[-1] = rate_index_br
                         xb = x_axis_vital_signs_spectrum[
@@ -414,8 +445,26 @@ class RadarDataProcessor:
                         # --- Send breathing rate via OSC ---
                         if breathing_rate_bpm > 0:
                             try:
-                                send_osc_messages(breathpm=breathing_rate_bpm)
-                                # print(f"OSC send breathing rate: {breathing_rate_bpm}")
+                                if max_breathing_rate is None:
+                                    send_osc_messages(breathpm=breathing_rate_bpm)
+                                elif breathing_rate_bpm > max_breathing_rate:
+                                    send_osc_messages(breathpm=max_breathing_rate)
+                                    if self.need_brv_intervention == False:
+                                        self.need_brv_intervention = True
+                                        print(f"[{time.strftime('%H:%M:%S', time.localtime())}] intervention started")
+                                        send_osc_messages(brvsignal=1)
+                                elif breathing_rate_bpm > 12:
+                                    send_osc_messages(breathpm=breathing_rate_bpm-2)
+                                    if self.need_brv_intervention == True:
+                                        self.need_brv_intervention = False
+                                        print(f"[{time.strftime('%H:%M:%S', time.localtime())}] intervention stopped")
+                                        send_osc_messages(brvsignal=0)
+                                else:
+                                    send_osc_messages(breathpm=breathing_rate_bpm)
+                                    if self.need_brv_intervention == True:
+                                        self.need_brv_intervention = False
+                                        print(f"[{time.strftime('%H:%M:%S', time.localtime())}] intervention stopped")
+                                        send_osc_messages(brvsignal=0)
                             except Exception as e:
                                 print(f"OSC send error: {e}")
                     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -509,11 +509,12 @@ void orangeBreathWithAmplitude(float amplitude) {
   // if (amplitude < 0) amplitude = 0;
   if (amplitude > 40) amplitude = 40;
   // Map amplitude (0-100, usually max 40) to brightness (20%-60%)
-  float base = 0.2; // 20%
+  float base = 0.6; // 60%
   float scale = 1; // 40% range
-  float brightness = base + (amplitude / 100.0) * scale; // 0.2 to 0.6
+  float brightness = base - (amplitude / 100.0) * scale; // 0.2 to 0.6 (reversed)
   // Amplitude < 0 is for debugging, make sure brightness is not negative
   if (brightness < 0) brightness = 0;
   uint8_t led_brightness = (uint8_t)(brightness * 255);
   setAllLedsColorWithBrightness(255, 162, 57, led_brightness);
 }
+

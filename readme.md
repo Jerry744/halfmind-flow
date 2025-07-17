@@ -1,5 +1,8 @@
 # Halfmind Flow
 
+![Halfmind Flow Demo](https://github.com/Jerry744/halfmind-flow/blob/main/halfmind-flow-demo.png)
+*Demo: Halfmind Flow system in action*
+
 **Halfmind Flow** explores how radar sensing can support focus at work by detecting presence and breathing patterns to gently intervene when attention drifts.  
 This project is part of my Master’s graduation project in the Integrated Product Design program at TU Delft.
 

@@ -3,3 +3,4 @@
 *.rhl
 *.DS_Store
 *.zip
+/tova/analysis/functions/__pycache__

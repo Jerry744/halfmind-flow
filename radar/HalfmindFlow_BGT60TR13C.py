@@ -1,12 +1,10 @@
 # % ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# % SPS Short Course: Radar Signal Processing Mastery
-# % Theory and Hands-On Applications with mmWave MIMO Radar Sensors
-# % Date: 7-11 October 2024
-# % Time: 9:00AM-11:00AM ET (New York Time)
-# % Presenter: Mohammad Alaee-Kerahroodi
+# % This code is modified from the original code to support the Halfmind Flow Device communication with ESP32 and Max/MSP via OSC.
 # % ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # % Website: https://radarmimo.com/
+# % Author: Mohammad Alaee-Kerahroodi
 # % Email: info@radarmimo.com, mohammad.alaee@uni.lu
+# % Original code: https://github.com/radarmimo/Download-Center/tree/main/Short%20Courses/IEEE%20SPS%202024%20-%20Radar%20Signal%20Processing%20Mastery/Codes/Lecture%204
 # % ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 import pprint
 import queue

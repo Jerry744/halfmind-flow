@@ -35,7 +35,7 @@ if __name__ == "__main__":
 
 
     # automate a folder calculation
-    folder_path = "/Users/zhengyang/Documents/ADHD/Experiment-1/Result/other/mio/"
+    folder_path = "/Users/zhengyang/Documents/ADHD/Experiment-1/Result/other/02-letian"
     results = process_folder(folder_path, debug=debug)
     for result in results:
         print(f"\nFile: {result['file']}")

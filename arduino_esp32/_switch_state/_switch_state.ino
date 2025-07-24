@@ -9,9 +9,14 @@
 #define BREATH_CYCLE_LENGTH 4.0  // Half breathing cycle in seconds
 
 // WiFi settings
-const char* ssid = "TP-Link_CF74";
-const char* password = "81541027";
+// const char* ssid = "TP-Link_CF74";
+// const char* password = "81541027";
 
+const char* ssid = "TP-Link_122D";
+const char* password = "05997343";
+
+const char* ssid_test = "TP-Link_DDFE";
+const char* password_test = "10450215";
 // OSC settings
 WiFiUDP Udp;
 const unsigned int localPort = 8888;  // Local port to listen on
@@ -100,7 +105,11 @@ void setup() {
   strip.show();
 
   // Connect to WiFi with 30s timeout
-  bool wifiConnected = connectToWiFiWithTimeout(ssid, password, 30000);
+  bool wifiConnected = connectToWiFiWithTimeout(ssid, password, 8000);
+  if (!wifiConnected) {
+    Serial.println("Primary WiFi failed. Trying backup WiFi...");
+    wifiConnected = connectToWiFiWithTimeout(ssid_test, password_test, 8000);
+  }
   if (wifiConnected) {
     Serial.print("Connected! IP address: ");
     Serial.println(WiFi.localIP());
@@ -117,7 +126,7 @@ void setup() {
       Serial.println("OSC IP filtering DISABLED - Accepting messages from any IP");
     }
   } else {
-    Serial.println("WiFi connection failed after 30 seconds. Skipping network setup.");
+    Serial.println("WiFi connection failed after 8 seconds (both networks). Skipping network setup.");
   }
   
   state = STATUS_0;

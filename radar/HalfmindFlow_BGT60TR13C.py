@@ -28,8 +28,20 @@ from scipy.ndimage import uniform_filter1d
 from scipy.signal import lfilter, firwin, find_peaks
 from pythonosc.udp_client import SimpleUDPClient
 import paho.mqtt.client as mqtt
+import csv
+from datetime import datetime
 
 DEBUG_MODE = True
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# UDP Configuration
+# UDP_IP_ESP32 = "192.168.31.62" # Replace with your UDP server IP
+UDP_IP_ESP32 = "192.168.0.109"
+UDP_IP_ESP32 = "192.168.1.110" # Darcy's house
+# UDP_IP_ESP32 = "192.168.31.62"
+UDP_PORT_ESP32 = 8888 # Replace with your UDP server port
+UDP_IP_MAX = "127.0.0.1"
+UDP_PORT_MAX = 8000
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ENABLE_RANGE_PROFILE_PLOT = True
@@ -59,7 +71,7 @@ figure_update_time = 25  # m second
 fft_size_range_profile = samples_per_chirp * 2
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 object_distance_start_range = 0.5
-object_distance_stop_range = 1.0
+object_distance_stop_range = 1.2
 epsilon_value = 0.00000001
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # peak detection
@@ -97,12 +109,7 @@ data_queue = queue.Queue()
 start_time = time.time()
 neulog_start_time = start_time
 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# UDP Configuration
-UDP_IP_ESP32 = "192.168.31.62" # Replace with your UDP server IP
-UDP_PORT_ESP32 = 8888 # Replace with your UDP server port
-UDP_IP_MAX = "127.0.0.1"
-UDP_PORT_MAX = 8000
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 range_profile_peak_index = 0
 max_index_processing = True
@@ -183,11 +190,35 @@ class RadarDataProcessor:
         self.presence_buffer_seconds = 5
         # Add reset timer for phase unwrap
         self.last_reset_time = time.time()
-        self.reset_interval = 180  # 3 minutes in seconds
+        self.reset_interval = 500  # 3 minutes in seconds
         # Add exit flag for graceful shutdown
         self.should_exit = False
         # Add brv signal for anxiety intervention
         self.need_brv_intervention = False
+        # Add timer for brv intervention
+        self.brv_intervention_start_time = None
+        self.last_csv_log_time = 0
+        self.csv_writer = None
+        self.csv_file = None
+        self.csv_filename = None
+        self.init_csv_logger()
+
+    def init_csv_logger(self):
+        now = datetime.now()
+        self.csv_filename = f"breathlog_{now.strftime('%Y%m%d_%H%M%S')}.csv"
+        self.csv_file = open(self.csv_filename, 'w', newline='')
+        self.csv_writer = csv.writer(self.csv_file)
+        self.csv_writer.writerow(['timestamp', 'readable_time', 'breathing_rate', 'filtered_breath'])
+
+    def log_to_csv(self, timestamp, readable_time, breathing_rate, filtered_breath):
+        # Drop lines with error data (e.g., None, nan, inf, or negative/zero breathing rate)
+        if (breathing_rate is None or filtered_breath is None or
+            not isinstance(breathing_rate, (int, float)) or not isinstance(filtered_breath, (int, float)) or
+            not (np.isfinite(breathing_rate) and np.isfinite(filtered_breath)) or
+            breathing_rate <= 0):
+            return
+        self.csv_writer.writerow([timestamp, readable_time, breathing_rate, filtered_breath])
+        self.csv_file.flush()
 
     def calc_range_fft(self, data_queue):
         if not data_queue.empty():
@@ -285,7 +316,7 @@ class RadarDataProcessor:
         
     #     return mean_breathing_rate
 
-    def detect_presence_by_range_profile(self, range_fft_abs, max_range, threshold=0.0018):
+    def detect_presence_by_range_profile(self, range_fft_abs, max_range, threshold=0.002):
         """
         基于距离范围内的 range_fft_abs 最大值判断人体存在。
         返回 1 表示有人，0 表示无人。
@@ -347,8 +378,8 @@ class RadarDataProcessor:
             
             # Check if it's time to reset phase data (every 3 minutes)
             current_time = time.time()
-            # if current_time - self.last_reset_time >= self.reset_interval:
-            #     self.reset_phase_data()
+            if current_time - self.last_reset_time >= self.reset_interval:
+                self.reset_phase_data()
             
             if not data_queue.empty():
                 time_passed = current_time - start_time
@@ -449,20 +480,27 @@ class RadarDataProcessor:
                                     send_osc_messages(breathpm=max_breathing_rate)
                                     if self.need_brv_intervention == False:
                                         self.need_brv_intervention = True
+                                        self.brv_intervention_start_time = time.time()
                                         print(f"[{time.strftime('%H:%M:%S', time.localtime())}] intervention started")
                                         send_osc_messages(brvsignal=1)
                                 elif breathing_rate_bpm > 12:
                                     send_osc_messages(breathpm=breathing_rate_bpm-2)
+                                    # Only stop intervention if at least 3 seconds have passed
                                     if self.need_brv_intervention == True:
-                                        self.need_brv_intervention = False
-                                        print(f"[{time.strftime('%H:%M:%S', time.localtime())}] intervention stopped")
-                                        send_osc_messages(brvsignal=0)
+                                        if self.brv_intervention_start_time is not None and (time.time() - self.brv_intervention_start_time >= 3):
+                                            self.need_brv_intervention = False
+                                            self.brv_intervention_start_time = None
+                                            print(f"[{time.strftime('%H:%M:%S', time.localtime())}] intervention stopped")
+                                            send_osc_messages(brvsignal=0)
                                 else:
                                     send_osc_messages(breathpm=breathing_rate_bpm)
+                                    # Only stop intervention if at least 3 seconds have passed
                                     if self.need_brv_intervention == True:
-                                        self.need_brv_intervention = False
-                                        print(f"[{time.strftime('%H:%M:%S', time.localtime())}] intervention stopped")
-                                        send_osc_messages(brvsignal=0)
+                                        if self.brv_intervention_start_time is not None and (time.time() - self.brv_intervention_start_time >= 3):
+                                            self.need_brv_intervention = False
+                                            self.brv_intervention_start_time = None
+                                            print(f"[{time.strftime('%H:%M:%S', time.localtime())}] intervention stopped")
+                                            send_osc_messages(brvsignal=0)
                             except Exception as e:
                                 print(f"OSC send error: {e}")
                     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -503,6 +541,17 @@ class RadarDataProcessor:
                             print(f"[{now_str}] User focused for {self.working_time / 60:.2f} minutes")
                             self.working_time = 0.0
                             self._last_exist_time = None
+
+                    # CSV logging at 1Hz
+                    now = time.time()
+                    if now - self.last_csv_log_time >= 1.0:
+                        self.last_csv_log_time = now
+                        timestamp = now
+                        readable_time = datetime.fromtimestamp(now).strftime('%Y-%m-%d %H:%M:%S')
+                        # Use breathing_rate_bpm if available, else None
+                        br = breathing_rate_bpm if 'breathing_rate_bpm' in locals() else None
+                        filtered_breath = filtered_breathing_plot[-1] if filtered_breathing_plot is not None else None
+                        self.log_to_csv(timestamp, readable_time, br, filtered_breath)
 
     def calculate_breathing_rate_variability(self, window_seconds=240):
         """
@@ -571,6 +620,8 @@ class RadarDataProcessor:
     def stop(self):
         """Stop the processing thread"""
         self.should_exit = True
+        if self.csv_file:
+            self.csv_file.close()
         print("Radar processor stopping...")
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

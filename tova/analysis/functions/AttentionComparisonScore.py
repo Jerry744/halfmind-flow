@@ -1,9 +1,16 @@
 import sys
 sys.path.append('.')
-from functions.dataset_visual_norm import tova_selected_data
+try:
+    from functions.dataset_visual_norm import tova_selected_data
+except Exception:
+    from dataset_visual_norm import tova_selected_data
+
 
 def z_score(x, mean, std):
     return (x - mean) / std
+
+def z_score_reverse(x, mean, std):
+    return (mean - x) / std
 
 def standard_score(z):
     return 100+15*z
@@ -13,14 +20,14 @@ def calculate_attention_score(meanHitRT_LF, dprime_HF, SDHitRT, age, sex, debug=
     # age: automatically convert to the lower 10s (e.g. 23 -> 20, representing 20-29)
     age = int(age/10)*10
     group = tova_selected_data[age][sex]
-    meanHitRT_LF_z = z_score(meanHitRT_LF, group['response_time_H2']['mean'], group['response_time_H2']['sd'])
+    meanHitRT_LF_z = z_score_reverse(meanHitRT_LF, group['response_time_H1']['mean'], group['response_time_H1']['sd'])
     dprime_HF_z = z_score(dprime_HF, group['d_prime_H2']['mean'], group['d_prime_H2']['sd'])
-    SDHitRT_z = z_score(SDHitRT, group['variability_total']['mean'], group['variability_total']['sd'])
+    SDHitRT_z = z_score_reverse(SDHitRT, group['variability_total']['mean'], group['variability_total']['sd'])
     if debug:
-        print(f"meanHitRT_LF {meanHitRT_LF:.2f}, standard score: {standard_score(meanHitRT_LF_z):.2f}")
-        print(f"dprime_HF {dprime_HF:.2f}, standard score: {standard_score(dprime_HF_z):.2f}")
-        print(f"SDHitRT {SDHitRT:.2f}, standard score: {standard_score(SDHitRT_z):.2f}")
-    return -meanHitRT_LF_z + dprime_HF_z - SDHitRT_z + 1.8
+        print(f"meanHitRT_LF {meanHitRT_LF:.2f},z score: {meanHitRT_LF_z:.2f}, standard score: {standard_score(meanHitRT_LF_z):.2f}")
+        print(f"dprime_HF {dprime_HF:.2f},z score: {dprime_HF_z:.2f}, standard score: {standard_score(dprime_HF_z):.2f}")
+        print(f"SDHitRT {SDHitRT:.2f},z score: {SDHitRT_z:.2f}, standard score: {standard_score(SDHitRT_z):.2f}")
+    return meanHitRT_LF_z + dprime_HF_z + SDHitRT_z + 1.8
 
 def load_iqdat_file(file_path):
     # Read the file as text and replace single quotes with periods
@@ -56,3 +63,11 @@ def load_iqdat_file(file_path):
             print(f"user name: {user_name}")
     print([meanHitRT_LF, dprime_HF, SDHitRT, age, sex])
     return [meanHitRT_LF, dprime_HF, SDHitRT, age, sex]
+
+if __name__ == "__main__":
+    meanHitRT_LF = 426
+    dprime_HF = 0.7
+    SDHitRT = 193
+    age = 25
+    sex = 'Female'
+    print(calculate_attention_score(meanHitRT_LF, dprime_HF, SDHitRT, age, sex))
